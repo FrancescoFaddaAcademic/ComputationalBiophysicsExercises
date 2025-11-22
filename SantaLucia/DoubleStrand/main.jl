@@ -1,5 +1,6 @@
 using HTTP
 using StaticArrays
+using CairoMakie
 
 const FS = 64 #Frame size (size of the partition blocks, must consider system architecture)
 const EPF = Int(FS/2) #Number of bases in a frame 
@@ -15,7 +16,11 @@ end
 
 #a g c t/u
 
-const ΔH = Vector{Float64}([-7.6, -8.2, -8.5, -7.2, -7.8, -8.0, -10.6, -8.5, -8.4, -9.8, -8.0, -8.2, -7.2, -8.4, -7.8, -7.6])
+const R = 1.987 #cal/K/mol
+
+const C = 1
+
+const ΔH = Vector{Float64}([-7.6, -8.2, -8.5, -7.2, -7.8, -8.0, -10.6, -8.5, -8.4, -9.8, -8.0, -8.2, -7.2, -8.4, -7.8, -7.6]*1000)
 const ΔS = Vector{Float64}([-21.3, -22.2, -22.7, -21.3, -21.0, -19.9, -27.2, -22.7, -22.4, -24.4, -19.9, -22.2, -20.4, -22.4, -21.0, -21.3])
 
 const H_init::Float64 = 0.2 
@@ -141,9 +146,54 @@ function bindingThermoComp(strand::Strand)::SVector{2,Float64}
         S += -1.4
     end
 
-    return SVector{2,Float64}([H,S])
+    @show return SVector{2,Float64}([H,S])
 end
 
-strand = Strand("")
+function meltingTemperature(H, S, C)
+    return H/(S+R*log(C/4))
+end
 
-print(bindingThermoComp(strand))
+function meltingCurve(β, H, S)::Float64
+    x = exp(-(β*H - S)/R)
+    return 1-2(-1+sqrt(1+2*x))/(2*x)
+end
+
+println("-----------------------------------------------------------")
+
+#CGTTGA
+
+
+strand = Strand("CGTTGA")
+
+data = bindingThermoComp(strand)
+
+H = data[1]
+S = data[2]
+Tm = meltingTemperature(data...,C)
+
+print("Strand = ", strand.literal, "\n")
+
+print("ΔH = ")
+print(round(H, digits = 1))
+print(" cal/mol \n")
+
+print("ΔS = ")
+print(round(S, digits = 1))
+print(" cal/mol \n")
+
+print("Tm = ")
+print(Tm-273.15)
+print(" C° (")
+print(Tm)
+print(" K)\n")
+
+Ts= Vector(0:1:600)
+Xs = Vector{Float64}(undef, length(Ts))
+
+for i in 1:length(Xs)
+    Xs[i] = meltingCurve(1/Ts[i], H, S)
+end
+
+meltingCurve(1/Tm,H,S)
+
+lines(Ts, Xs)
