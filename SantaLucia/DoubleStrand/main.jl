@@ -103,10 +103,6 @@ function areComplementary(strand1::Strand, strand2::Strand)::Bool
     return true
 end
 
-function isPalindrome(strand::Strand)::Bool
-    return areComplementary(strand, strand)
-end
-
 function bindingThermoComp(strand::Strand)::SVector{2,Float64}
 
     #Initiation
@@ -148,6 +144,6 @@ function bindingThermoComp(strand::Strand)::SVector{2,Float64}
     return SVector{2,Float64}([H,S])
 end
 
-strand = Strand("AA")
+strand = Strand("")
 
 print(bindingThermoComp(strand))
