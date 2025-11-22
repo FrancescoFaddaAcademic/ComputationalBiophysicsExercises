@@ -27,9 +27,6 @@ const S_TermATpen::Float64 = 6.9
 const H_symCor::Float64 = 0.0
 const S_symCor::Float64 = -1.4
 
-#const masks = SVector{4,UInt8}(3, 12, 48, 192)
-#const sumMasks = SVector{4,UInt8}(3, 15, 63, 255)
-
 prov_masks = Vector{UInt64}(undef, EPF) 
 prov_sum_masks = Vector{UInt64}(undef, EPF)
 prov_masks[1] = prov_sum_masks[1] = 0x0000000000000003
@@ -52,8 +49,6 @@ Strand(string::String) = Strand(length(string), UInt64(ceil(length(string)/EPF))
 
 reverseStrand(strand::Strand) = Strand(reverse(strand.literal))
 
-
-
 function litToBin(lit::String)
     len = length(lit)
     nBytes = UInt8(ceil(len/EPF))
@@ -67,17 +62,17 @@ function litToBin(lit::String)
             char = lit[litId]
             mask = masks[iId]
             #Purines
-            if char == 'a' || char == 'A'
+            if char ∈ ['a','A']
                 key = key00
-            elseif char == 'g' || char == 'G'
+            elseif char ∈ ['g','G']
                 key = key01
             #Pyrimidines
-            elseif char == 'c' || char == 'C'
+            elseif char ∈ ['c','C']
                 key = key10    
-            elseif char == 'u' || char == 'U'
+            elseif char ∈ ['u','U']
                 key = key11
                 isR = true
-            elseif char == 't' || char == 'T'
+            elseif char ∈ ['t','T']
                 key = key11
                 isD = true
             else
@@ -131,11 +126,6 @@ function bindingThermoComp(strand::Strand)::SVector{2,Float64}
     end
     for iId in 1:(strand.length-(strand.bytes-1)*EPF-1)
         bind_type_Id = (strand.binary[strand.bytes] & (masks[iId]|masks[iId+1])) >> (2*(iId-1))
-        println(bitstring(strand.binary[strand.bytes]))
-        println(bitstring(masks[iId]|masks[iId+1]))
-        println(bitstring(strand.binary[strand.bytes] & (masks[iId]|masks[iId+1])))
-        println(bitstring((strand.binary[strand.bytes] & (masks[iId]|masks[iId+1])) >> (2*(iId-1))))
-        println()
         H += ΔH[bind_type_Id+1]
         S += ΔS[bind_type_Id+1]
     end
