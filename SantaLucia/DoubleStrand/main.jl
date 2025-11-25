@@ -96,7 +96,7 @@ function areComplementary(strand1::Strand, strand2::Strand)::Bool
     if strand1.length ≠ strand2.length
         return false
     end
-    nBytes = strand1.bytes
+    nBytes = strand1.bytes 
     for i in 1:(nBytes-1)
         if strand1.binary[i] ⊻ reverseStrand(strand2).binary[i] ≠ ~0x0000000000000000
             return false
