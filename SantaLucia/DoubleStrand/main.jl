@@ -171,7 +171,7 @@ H = data[1]
 S = data[2]
 Tm = meltingTemperature(data...,C)
 
-print("Strand = ", strand.literal, "\n")
+print("Strand = ", strand.literal, "\n\n")
 
 print("ΔH = ")
 print(round(H, digits = 1))
@@ -197,3 +197,5 @@ end
 meltingCurve(1/Tm,H,S)
 
 lines(Ts, Xs)
+
+println("-----------------------------------------------------------")
