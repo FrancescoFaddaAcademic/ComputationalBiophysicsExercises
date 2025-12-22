@@ -32,6 +32,7 @@ function ZeroPath()
     return Path{Vertex}([Vertex(fill(0, DIM))],1,UInt(0))
 end 
 
+Path(vertices::Vector{Vertex}, asymmetry_flag) = Path{Vertex}(vertices, Base.length(vertices), asymmetry_flag)
 Path(vertices::Vector{Vector{Int}}, asymmetry_flag) = Path{Vertex}([Vertex(vertices[i]) for i in 1:length(vertices)], length(vertices), asymmetry_flag)
 Path(vertices::Vector{Vector{Int}}, colors::Vector{Int}, asymmetry_flag) = Path{ColoredVertex}([ColoredVertex(vertices[i], colors[i]) for i in 1:length(vertices)], length(vertices), asymmetry_flag)
 
@@ -86,7 +87,7 @@ function path_extend(path::Path{Vertex}, step::Vector{Int})::Path
     for i in eachindex(broken_symmetries_vector)
         broken_symmetries_flag += UInt(broken_symmetries_vector[i] * 2^(i-1))
     end
-    return Path{Vertex}(vcat(path.vertices, Vertex(path.vertices[path.length].position .+ step)), path.length + 1, path.asymmetry_flag | broken_symmetries_flag)
+    return Path(vcat(path.vertices, Vertex(path.vertices[path.length].position .+ step)), path.length + 1, path.asymmetry_flag | broken_symmetries_flag)
 end
 
 function path_copy(path::Path)::Path
@@ -105,9 +106,8 @@ function path_translate(path::Path, translation_vector::Vector{Int})::Path
 end
 
 function path_concatenate(path1::Path{Vertex}, path2::Path{Vertex})
-    last_position = path1.vertices[path1.length]
-    path2_translated = path_translate(path2, last_position)
-    return Path{Vertex}(vcat(path1.vertices, path2_translated.vertices))
+    last_position = path1.vertices[path1.length].position
+    return Path(vcat(path1.vertices, path_translate(path2, last_position).vertices[2:path2.length]), path1.asymmetry_flag | path2.asymmetry_flag)
 end
 
 #Extends a self avoiding path 
@@ -202,9 +202,9 @@ function filter_equivalent(states::Vector{State})::Vector{State}
     return State.(filter_equivalent(Vector{Path}([state.path for state in states])))
 end
 
-function search_seeds(length::Int)::Vector{Vector{State}}
+function search_heads(length::Int)::Vector{Vector{State}}
     states = [State(ZeroPath())]            
-    seeds = [Vector{State}() for _ in 1:length]  
+    heads = [Vector{State}() for _ in 1:length]  
     next_states = Vector{State}()
     next_states_candidates = Vector{State}()
 
@@ -221,7 +221,7 @@ function search_seeds(length::Int)::Vector{Vector{State}}
                 #MUST BE FIXED
                 child_copy = deepcopy(child_state)
                 if is_completely_asymmetric(child_copy.path) && is_first_completely_asymmetric
-                    push!(seeds[i+1], child_copy)
+                    push!(heads[i+1], child_copy)
                     is_first_completely_asymmetric = false
 
                 elseif child_copy.path.asymmetry_flag != state.path.asymmetry_flag &&
@@ -241,12 +241,23 @@ function search_seeds(length::Int)::Vector{Vector{State}}
 
         states = deepcopy(next_states)
 
-        println("Seeds at iteration $(i+1):")
-        println([seed.path for seed in seeds[i+1]])
-        println("--------------------------------------------------------")
+        #println("Heads at iteration $(i+1):")
+        #println([head.path for head in heads[i+1]])
+        #println("--------------------------------------------------------")
     end
-    append!(seeds[length], deepcopy(next_states))
-    return seeds
+    append!(heads[length], deepcopy(next_states))
+    return heads
+end
+
+function search_bodies(length::Int)::Vector{Vector{State}}
+    bodies = [Vector{State}() for _ in 1:length]
+    bodies[1] = [State(ZeroPath())]
+    for i in 1:length-1
+        for body in bodies[i]
+            append!(bodies[i+1], deepcopy(extend_SAP(body)))
+        end
+    end
+    return bodies
 end
 
 function unwrap_recursive_vector(hypervector::Vector{Vector{T}})::Vector{T} where (T <: Any) #Bisogna migliorarlo, è un disastro
@@ -265,10 +276,45 @@ function unwrap_recursive_vector(hypervector::Vector{Vector{T}})::Vector{T} wher
     return out_vector
 end
 
-function suture(head::State, branch)
+function suture(head::Path, body::Path)
+    neck = head.vertices[head.length].position
+    translated_body = path_translate(body, neck)
+    for head_vertex in head.vertices
+        for body_vertex in translated_body.vertices[2:body.length]
+            if head_vertex.position == body_vertex.position
+                return ZeroPath()
+            end
+        end
+    end
+    return path_concatenate(head, body)
 end
 
-length = 5
-heads = search_seeds(length)
-bodies = search_bodies(length)
-paths = combine(heads, bodies)
+function suture(head::State, body::State)
+    return State(suture(head.path, body.path))
+end 
+
+function unchecked_suture(heads::Vector{Vector{State}}, bodies::Vector{Vector{State}}, length::Int)::Vector{Path}
+    buffer_size = 0
+    for i in 1:length-DIM        
+        buffer_size += Base.length(bodies[i]) * Base.length(heads[length-i+1])
+    end
+    buffer = Vector{Path}(undef, buffer_size)
+    buffer_idx = 0
+    for i in 1:length-DIM
+        for body in bodies[i]
+            for head in heads[length-i+1]
+                path = deepcopy(suture(head.path, body.path))
+                if path.length != 1
+                    buffer_idx += 1
+                    buffer[buffer_idx] = deepcopy(path)
+                end
+            end
+        end
+    end
+    return buffer[1:buffer_idx-1]
+end
+
+length = 4
+heads = search_heads(length)
+bodies = search_bodies(length-DIM)
+paths = unchecked_suture(heads, bodies, length)
