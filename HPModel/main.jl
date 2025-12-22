@@ -110,7 +110,7 @@ function path_concatenate(path1::Path{Vertex}, path2::Path{Vertex})
     return Path{Vertex}(vcat(path1.vertices, path2_translated.vertices))
 end
 
-#Extends a self avoiding path (SAP)
+#Extends a self avoiding path 
 function extend_SAP(state::State)::Vector{State} 
     path = state.path
     occupation = state.occupation
@@ -218,7 +218,7 @@ function search_seeds(length::Int)::Vector{Vector{State}}
             is_first_symmetry_break = true
 
             for child_state in child_states
-                # Make a copy to avoid reference issues
+                #MUST BE FIXED
                 child_copy = deepcopy(child_state)
                 if is_completely_asymmetric(child_copy.path) && is_first_completely_asymmetric
                     push!(seeds[i+1], child_copy)
@@ -237,7 +237,6 @@ function search_seeds(length::Int)::Vector{Vector{State}}
             end
         end
 
-        # Append filtered candidates to next_states, making sure they are copies
         append!(next_states, deepcopy.(filter_equivalent(next_states_candidates)))
 
         states = deepcopy(next_states)
@@ -246,6 +245,7 @@ function search_seeds(length::Int)::Vector{Vector{State}}
         println([seed.path for seed in seeds[i+1]])
         println("--------------------------------------------------------")
     end
+    append!(seeds[length], deepcopy(next_states))
     return seeds
 end
 
@@ -264,3 +264,11 @@ function unwrap_recursive_vector(hypervector::Vector{Vector{T}})::Vector{T} wher
     end
     return out_vector
 end
+
+function suture(head::State, branch)
+end
+
+length = 5
+heads = search_seeds(length)
+bodies = search_bodies(length)
+paths = combine(heads, bodies)
