@@ -31,10 +31,10 @@ end
 const masks = SVector{EPF,UInt64}(prov_masks)
 const sumMasks = SVector{EPF,UInt64}(prov_sum_masks)
 
-key00 = 0x0000000000000000
-key01 = 0x5555555555555555
-key10 = 0xaaaaaaaaaaaaaaaa
-key11 = 0xffffffffffffffff
+const key00 = 0x0000000000000000
+const key01 = 0x5555555555555555
+const key10 = 0xaaaaaaaaaaaaaaaa
+const key11 = 0xffffffffffffffff
 
 function Strand(string::String, dotparen::String)
     if length(string) == length(dotparen) 
