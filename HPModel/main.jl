@@ -1,4 +1,5 @@
-
+using BenchmarkTools
+using Profile
 using CairoMakie
 using Combinatorics
 
@@ -33,7 +34,7 @@ function ZeroPath()
 end 
 
 Path(vertices::Vector{Vertex}, asymmetry_flag) = Path{Vertex}(vertices, Base.length(vertices), asymmetry_flag)
-Path(vertices::Vector{Vector{Int}}, asymmetry_flag) = Path{Vertex}([Vertex(vertices[i]) for i in 1:length(vertices)], length(vertices), asymmetry_flag)
+Path(vertices::Vector{Vector{Int}}, asymmetry_flag) = Path{Vertex}([Vertex(vertices[i]) for i in 1:Base.length(vertices)], Base.length(vertices), asymmetry_flag)
 Path(vertices::Vector{Vector{Int}}, colors::Vector{Int}, asymmetry_flag) = Path{ColoredVertex}([ColoredVertex(vertices[i], colors[i]) for i in 1:length(vertices)], length(vertices), asymmetry_flag)
 
 function State(path)
@@ -81,13 +82,23 @@ const ORTHO_MATRICES = build_orthogonal_matrices()
 #Translates the centered index into that of the gird axis. Bound checking is performed by the Array structure
 centered_index(index::Vector{Int}, radius::Int) = radius .+ index .+ 1 
 
-function path_extend(path::Path{Vertex}, step::Vector{Int})::Path
-    broken_symmetries_vector = Int.(step .!= 0)
+function path_extend(path::Path{Vertex}, new_position::Vector{Int})::Path
+    broken_symmetries_vector = Int.(new_position .!= 0)
     broken_symmetries_flag = UInt(0)
     for i in eachindex(broken_symmetries_vector)
         broken_symmetries_flag += UInt(broken_symmetries_vector[i] * 2^(i-1))
     end
-    return Path(vcat(path.vertices, Vertex(path.vertices[path.length].position .+ step)), path.length + 1, path.asymmetry_flag | broken_symmetries_flag)
+    return Path(vcat(path.vertices, Vertex(new_position)), path.length + 1, path.asymmetry_flag | broken_symmetries_flag)
+end
+
+function state_extend(state::State, new_position::Vector{Int})::State
+    path = state.path
+    new_occupation = fill(false, fill((path.length+1)*2+1, DIM)...)
+    window = ntuple(_->2:(path.length*2+1)+1, DIM)
+    new_occupation[window...] = state.occupation
+    new_occupation[CartesianIndex(centered_index(new_position, path.length)...)] = true
+    new_path = path_extend(path, new_position)
+    return State(new_path, new_occupation)
 end
 
 function path_copy(path::Path)::Path
@@ -114,7 +125,7 @@ end
 function extend_SAP(state::State)::Vector{State} 
     path = state.path
     occupation = state.occupation
-    new_paths_buffer = Vector{State}(undef, 2*DIM)
+    new_state_buffer = Vector{State}(undef, 2*DIM)
     last_position = path.vertices[path.length].position
     buffer_idx = 1
     extensions_count = 0
@@ -123,14 +134,16 @@ function extend_SAP(state::State)::Vector{State}
             step = sign * BASE[axis_idx]
             new_position = last_position + step
             if !occupation[CartesianIndex(centered_index(new_position, path.length)...)]
-                new_paths_buffer[buffer_idx] = State(path_extend(path, step))
+                #new_state_buffer[buffer_idx] = State(path_extend(path, new_position))
+                new_state_buffer[buffer_idx] = state_extend(state, new_position)
+
                 buffer_idx += 1
                 extensions_count += 1
             end
         end 
     end
     if extensions_count != 0
-        return new_paths_buffer[1:extensions_count]
+        return new_state_buffer[1:extensions_count]
     else
         return Vector{State}([])
     end
@@ -311,10 +324,19 @@ function unchecked_suture(heads::Vector{Vector{State}}, bodies::Vector{Vector{St
             end
         end
     end
-    return buffer[1:buffer_idx-1]
+    return buffer[1:buffer_idx]
 end
 
-length = 4
+function print_path(path::Path)
+    print("<")
+    for vertex in path.vertices
+        print(vertex.position)
+    end
+    print(">")
+end
+
+length = 10
 heads = search_heads(length)
+#@benchmark search_bodies(length-DIM)
 bodies = search_bodies(length-DIM)
 paths = unchecked_suture(heads, bodies, length)
