@@ -18,7 +18,15 @@ mutable struct Path{V<:AbstractVertex}<:AbstractPath
     asymmetry_flag::UInt
 end
 ```
-"Path" is synonimous a conformation, a path contains Vertices that are  
+`Path` is synonimous to conformation in biological terms, a path contains an array `vertices` of vertices (that depending on their concrete type may contain different informations), their `length` (for efficient data transfer) and an `asymmetry_flag` that contains useful information on the degree of asymmetry of a certain path.  
+
+```julia
+mutable struct State
+    path::Path
+    occupation::Array{Bool}
+end
+```
+A `State` is nothing but the combination of a `Path` and an occupation matrix (`occupation`) this data structure is useful to implement self avoidance in an efficient manner, to avoid overloading the memory with potentially useless information we have decided to keep `State` and `Path` as separate structures that are used according to necessities.
 
 ### Core functions
 
