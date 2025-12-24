@@ -1,3 +1,5 @@
+module HPModel
+
 using BenchmarkTools
 using Profile
 using GLMakie
@@ -29,10 +31,12 @@ mutable struct State
     occupation::Array{Bool}
 end
 
+#Initializes a trivial path
 function ZeroPath(dim::Int)::Path
     return Path{Vertex}([Vertex(fill(0, dim))],1,UInt(0))
 end 
 
+#Initializes a trivial state
 function ZeroState(dim::Int)::State
     occupation = fill(false, fill(3, dim)...)
     occupation[ntuple(_->2, dim)...] = true
@@ -43,10 +47,12 @@ Path(vertices::Vector{Vertex}, asymmetry_flag) = Path{Vertex}(vertices, Base.len
 Path(vertices::Vector{Vector{Int}}, asymmetry_flag) = Path{Vertex}([Vertex(vertices[i]) for i in 1:Base.length(vertices)], Base.length(vertices), asymmetry_flag)
 Path(vertices::Vector{Vector{Int}}, colors::Vector{Int}, asymmetry_flag) = Path{ColoredVertex}([ColoredVertex(vertices[i], colors[i]) for i in 1:length(vertices)], length(vertices), asymmetry_flag)
 
+#Extracts the dimension from the path
 function path_dim(path::Path)::Int
     return Base.length(path.vertices[1].position)
 end
 
+#Initializes a state from a given path
 function State(path::Path)::State
     dim = Base.length(path.vertices[1].position)
     occupation = fill(false, fill(path.length*2+1, dim)...)
@@ -56,7 +62,7 @@ function State(path::Path)::State
     return State(path, occupation)
 end
 
-#Geometric properties--------------------------------------------------------------
+#GEOMETRIC PROPERTIES --------------------------------------------------------------
 
 #Base vectors in a generic dimension
 function compute_base_vectors(dim::Int)
@@ -87,12 +93,13 @@ end
 #Order of the Hyperoctaedral group
 matrix_number(dim::Int) = factorial(dim)*2^dim
 
-
+#Asymmetry key corresponding to full asymmetry
 asymm_key(dim::Int) = sum(2 .^(0:dim-1))
 
 #Translates the centered index into that of the gird axis. Bound checking is performed by the Array structure
 centered_index(index::Vector{Int}, radius::Int) = ntuple(i -> radius + index[i] + 1, Base.length(index))
 
+#Extends a path regardless of collisions
 function path_extend(path::Path{Vertex}, new_position::Vector{Int})::Path
     broken_symmetries_vector = Int.(new_position .!= 0)
     broken_symmetries_flag = UInt(0)
@@ -102,6 +109,7 @@ function path_extend(path::Path{Vertex}, new_position::Vector{Int})::Path
     return Path(vcat(path.vertices, Vertex(new_position)), path.length + 1, path.asymmetry_flag | broken_symmetries_flag)
 end
 
+#Extends a state regardless of collisions 
 function state_extend(state::State, new_position::Vector{Int}, dim::Int)::State
     path = state.path
     new_side_length = (path.length+1)*2+1
@@ -114,14 +122,17 @@ function state_extend(state::State, new_position::Vector{Int}, dim::Int)::State
     return State(new_path, new_occupation)
 end
 
+#Creates a copy of a path
 function path_copy(path::Path)::Path
     return Path(Vector{Vector{Int}}([path.vertices[i].position for i in 1:path.length]), path.asymmetry_flag)
 end
 
+#Creates a copy of a state
 function state_copy(state::State)::State
     return State(path_copy(state.path), copy(state.occupation))
 end
 
+#Translates a path (modifies mutable content!)
 function path_translate!(path::Path, translation_vector::Vector{Int})::Path
     for vertex in path.vertices
         vertex.position += translation_vector
@@ -129,16 +140,19 @@ function path_translate!(path::Path, translation_vector::Vector{Int})::Path
     return path
 end 
 
+#Creates a translated copy of a path
 function path_translate(path::Path, translation_vector::Vector{Int})::Path
     dim = Base.length(translation_vector)
     new_vertices = Vector{Vertex}([Vertex(path.vertices[i].position + translation_vector) for i in 1:path.length])
     return Path(new_vertices, path.asymmetry_flag)
 end 
 
-function path_add(path1::Path, path2::Path)::Path
+#Creates a path containing all the element of the first argument and all but the first elements of the second
+function path_combine(path1::Path, path2::Path)::Path
     return Path(vcat(path1.vertices, path2.vertices[2:path2.length]), path1.asymmetry_flag | path2.asymmetry_flag)
 end
 
+#Concatenates tail to head two paths
 function path_concatenate(path1::Path{Vertex}, path2::Path{Vertex})::Path
     last_position = path1.vertices[path1.length].position
     return Path(vcat(path1.vertices, path_translate(path2, last_position).vertices[2:path2.length]), path1.asymmetry_flag | path2.asymmetry_flag)
@@ -172,10 +186,12 @@ function extend_SAP(state::State, dim::Int)::Vector{State}
     end
 end
 
+#Asserts if a path has no rigid symmetries
 function is_completely_asymmetric(path::Path, dim::Int)
     return path.asymmetry_flag == asymm_key(dim)
 end
 
+#Asserts if two paths are equivalent
 function are_equal(path1::Path, path2::Path)::Bool
     if path1.length != path2.length
         return false
@@ -189,6 +205,7 @@ function are_equal(path1::Path, path2::Path)::Bool
     return true
 end
 
+#Transforms a path accordingly to a specified transformation matrix (modifies mutable content!)
 function linear_transform!(path::Path, matrix)::Path
     for vertex in path.vertices
         vertex.position = matrix * vertex.position
@@ -196,12 +213,13 @@ function linear_transform!(path::Path, matrix)::Path
     return path
 end
 
+#Creates a copy of a path and transforms it according to a specified transformation matrix
 function linear_transform(path::Path, matrix)::Path
     return linear_transform!(path_copy(path), matrix)
 end
 
+#Asserts if two paths are equivalent up to orthogonal transformations
 function are_equivalent(path1::Path, path2::Path)::Bool
-    #Order paths by length for higher efficiency
     if path1.length < path2.length
         short_path = path1
         long_path = path2
@@ -217,8 +235,8 @@ function are_equivalent(path1::Path, path2::Path)::Bool
     return false
 end
 
+#Asserts if two paths are equivalent up to orthogonal transformations of specified dimension
 function are_equivalent(path1::Path, path2::Path, dim::Int)::Bool
-    #Order paths by length for higher efficiency
     if path1.length < path2.length
         short_path = path1
         long_path = path2
@@ -234,6 +252,7 @@ function are_equivalent(path1::Path, path2::Path, dim::Int)::Bool
     return false
 end
 
+#Assertrs if two paths are equivalent up to a set of linear transformations represented by specified matrices 
 function are_equivalent(path1::Path, path2::Path, matrices)::Bool
     #Order paths by length for higher efficiency
     if path1.length < path2.length
@@ -251,7 +270,7 @@ function are_equivalent(path1::Path, path2::Path, matrices)::Bool
     return false
 end
 
-#MUST BE IMPROVED
+#Constructrs a maximal subset of non-equivalent paths (under orthogonal transformation equivalence) from a given set
 function filter_equivalent(paths::Vector{Path}, dim::Int)::Vector{Path}
     filtered_paths = Vector{Path}()
     matrices = O(dim)
@@ -270,6 +289,7 @@ function filter_equivalent(paths::Vector{Path}, dim::Int)::Vector{Path}
     return filtered_paths
 end
 
+#Constructrs a maximal subset of non-equivalent paths (under linear transformations specified by a set of matrices) from a given set
 function filter_equivalent(paths::Vector{Path}, dim::Int, matrices)::Vector{Path}
     filtered_paths = Vector{Path}()
     for path in paths
@@ -287,14 +307,17 @@ function filter_equivalent(paths::Vector{Path}, dim::Int, matrices)::Vector{Path
     return filtered_paths
 end
 
+#Constructrs a maximal subset of non-equivalent states (under orthogonal transformation equivalence) from a given set
 function filter_equivalent(states::Vector{State}, dim::Int)::Vector{State}
     return State.(filter_equivalent(Vector{Path}([state.path for state in states]), dim))
 end
 
+#Constructrs a maximal subset of non-equivalent states (under linear transformations specified by a set of matrices) from a given set
 function filter_equivalent(states::Vector{State}, dim::Int, matrices)::Vector{State}
     return State.(filter_equivalent(Vector{Path}([state.path for state in states]), dim, matrices))
 end
 
+#Finds all the minimal asymmetric paths up to a length together with the symmetric paths of the same length   
 function search_heads(length::Int, dim::Int)::Vector{Vector{State}}          
     heads = Vector{Vector{State}}(undef, length) 
     if dim > 2
@@ -360,42 +383,30 @@ function search_heads(length::Int, dim::Int)::Vector{Vector{State}}
     return heads
 end
 
-
+#Constructs all the self avoiding paths up to a specified length
 function search_bodies(length::Int, dim::Int)::Vector{Vector{State}}
-    bodies_buffer = [Vector{State}(undef, (2*dim)^(i-1)) for i in 1:length]
-    bodies = Vector{Vector{State}}(undef, length)
-    bodies[1] = [State(ZeroPath(dim))]
-    for i in 2:length
-        count = 0
-        for body in bodies[i-1]
-            children = extend_SAP(body, dim)
-            for child in children
-                bodies_buffer[i][count+1] = child
-                count += 1
+    if length > 0
+        bodies_buffer = [Vector{State}(undef, (2*dim)^(i-1)) for i in 1:length]
+        bodies = Vector{Vector{State}}(undef, length)
+        bodies[1] = [State(ZeroPath(dim))]
+        for i in 2:length
+            count = 0
+            for body in bodies[i-1]
+                children = extend_SAP(body, dim)
+                for child in children
+                    bodies_buffer[i][count+1] = child
+                    count += 1
+                end
             end
+            bodies[i] = bodies_buffer[i][1:count]
         end
-        bodies[i] = bodies_buffer[i][1:count]
+        return bodies
+    else
+        return Vector{Vector{State}}([[ZeroState(dim)]])
     end
-    return bodies
 end
 
-#DA SISTEMARE
-function unwrap_recursive_vector(hypervector::Vector{Vector{T}})::Vector{T} where (T <: Any) 
-    out_len = 0
-    for vector in hypervector
-       out_len += size(vector, 1)
-    end
-    out_vector = Vector{T}(undef, out_len)
-    offset = 0
-    for vector in hypervector
-        for i in 1:size(vector, 1)
-            out_vector[offset + i] = vector[i]
-        end
-        offset += size(vector, 1)
-    end
-    return out_vector
-end
-
+#Combines two paths end to beginning, if there are collisions returns a trivial path
 function suture(head::Path, body::Path, dim::Int)
     neck = head.vertices[head.length].position
     translated_body = path_translate(body, neck)
@@ -406,34 +417,51 @@ function suture(head::Path, body::Path, dim::Int)
             end
         end
     end
-    return path_add(head, translated_body)
+    return path_combine(head, translated_body)
 end
 
+#Combines two states end to beginning, if there are collisions returns a trivial state
 function suture(head::State, body::State, dim::Int)
     return State(suture(head.path, body.path, dim))
 end 
 
-function unchecked_suture(heads::Vector{Vector{State}}, bodies::Vector{Vector{State}}, length::Int, dim::Int)::Vector{Path}
-    buffer_size = 0
-    for i in 1:length-dim        
-        buffer_size += Base.length(bodies[i]) * Base.length(heads[length-i+1])
-    end
-    buffer = Vector{Path}(undef, buffer_size)
-    buffer_idx = 0
-    for i in 1:length-dim
-        for body in bodies[i]
-            for head in heads[length-i+1]
-                path = suture(head.path, body.path, dim)
-                if path.length != 1
-                    buffer_idx += 1
-                    buffer[buffer_idx] = path
+#Combines the elements of two sets of self avoiding paths in all possible ways
+function all_combination_suture(heads::Vector{Vector{State}}, bodies::Vector{Vector{State}}, length::Int, dim::Int)::Vector{Path}
+    if length > dim
+        buffer_size = 0
+        for i in 1:length-dim        
+            buffer_size += Base.length(bodies[i]) * Base.length(heads[length-i+1])
+        end
+        buffer = Vector{Path}(undef, buffer_size)
+        buffer_idx = 0
+        for i in 1:length-dim
+            for body in bodies[i]
+                for head in heads[length-i+1]
+                    path = suture(head.path, body.path, dim)
+                    if path.length != 1
+                        buffer_idx += 1
+                        buffer[buffer_idx] = path
+                    end
                 end
             end
         end
+        return buffer[1:buffer_idx]
+    else 
+        return [heads[dim][i].path for i in 1:Base.length(heads[dim])]
     end
-    return buffer[1:buffer_idx]
 end
 
+#Construct all the possible self avoiding paths (modulo orthogonal group) up to a length
+function unique_SAPs(depth::Int, dim::Int)
+    heads = search_heads(depth, dim)
+    bodies = search_bodies(depth-dim, dim)
+    all_combinations = all_combination_suture(heads, bodies, depth, dim)
+    return all_combinations
+end
+
+#SELF INTERACTION METHODS ----------------------------------------------------------------------
+
+#Calculates the upper triangle of the adjacency matrix of a path 
 function path_self_adjacency_triangle(path::Path)::Vector{Vector{Bool}}
     triangle = Vector([fill(false, i) for i in 1:path.length])
     for i in 3:path.length
@@ -446,43 +474,36 @@ function path_self_adjacency_triangle(path::Path)::Vector{Vector{Bool}}
     return triangle
 end
 
-function print_triangle(triangle::Vector{Vector{Bool}})
-    for i in 1:length(triangle)
-        for j in 1:i
-            if triangle[i][j]
-                print("X")
-            else
-                print("O")
-            end
-        end
-        print("\n")
-    end
-end
-
+#Calculates the number of self adjacencies of a path by providing its adjacency matrix 
 function count_adjacent(triangle::Vector{Vector{Bool}})
     count = 0
     for i in 1:Base.length(triangle)
         for j in 1:i
-            if triangle[i][j]
-                count += 1
-            end
+            count += triangle[i][j]
         end
     end
     return count
 end
 
+#Evaluates the cumulative effect of a first neighbor self interaction with respect to a given interaction model 
 function calculate_self_interaction(sequence::Vector{Int}, triangle::Vector{Vector{Bool}}, interaction_model)
     interaction = 0
     for i in 1:Base.length(triangle)
         for j in 1:i
-            if triangle[i][j]
-                interaction += interaction_model(sequence[i], sequence[j])
-            end
+            interaction += triangle[i][j] * interaction_model(sequence[i], sequence[j])
         end
     end
     return interaction
 end
 
+#INTERACTION MODELS --------------------------------------------------------------------
+
+#Simple multiplicative interaction
+function multiplicative_binary_interaction_model(a,b)
+    return a*b
+end
+
+#Specialized printing function for path visualization
 function print_path(path::Path)
     print("<")
     for vertex in path.vertices
@@ -491,12 +512,19 @@ function print_path(path::Path)
     print(">\n")
 end
 
-function unique_SAPs(depth::Int, dim::Int)
-    heads = search_heads(depth, dim)
-    bodies = search_bodies(depth-dim, dim)
-    return unchecked_suture(heads, bodies, depth, dim)
+#Specialized printing function for adjacency visualization
+function print_triangle(triangle::Vector{Vector{Bool}})
+    for i in 1:length(triangle)
+        for j in 1:i
+            triangle[i][j] ? print("X") : print("O")
+        end
+        print("\n")
+    end
 end
 
+#SEQUENCES METHODS ------------------------------------------------------------
+
+#Constructs all binary sequences of a specified lenght
 function all_binary_sequences(len::Int)::Vector{Vector{Int}}
     sequences = Vector{Vector{Int}}([zeros(len) for _ in 1:2^len])
     print(typeof(sequences))
@@ -508,32 +536,75 @@ function all_binary_sequences(len::Int)::Vector{Vector{Int}}
     return sequences
 end
 
-function categorize_by_compactedness(SAPs::Vector{Path})::Vector{Vector{Path}}
-    self_adjacency_triangles = path_self_adjacency_triangle.(SAPs)
+#Constructs a random vector of specified length whose elements are binary sequences of a specified length
+function random_binary_sequences(len::Int, number::Int)::Vector{Vector{Int}}
+    sequences = Vector{Vector{Int}}([Vector{Int}(undef, len) for i in 1:number])
+    for i in 1:number
+        key = rand(1:2^len)
+        for j in 1:len
+            sequences[i][j] = Int(UInt(key) >> (j-1) & UInt(1))
+        end
+    end
+    return sequences
+end
+
+#Organizes paths by compactedness
+function categorize_by_compactedness(paths::Vector{Path})::Vector{Vector{Path}}
+    self_adjacency_triangles = path_self_adjacency_triangle.(paths)
     adjacency_count = count_adjacent.(self_adjacency_triangles)
     categories = Vector{Vector{Path}}([[] for _ in 1:maximum(adjacency_count)+1])
-    for i in 1:Base.length(SAPs)
-        push!(categories[adjacency_count[i]+1], path_copy(SAPs[i]))
+    for i in 1:Base.length(paths)
+        push!(categories[adjacency_count[i]+1], path_copy(paths[i]))
     end
     return categories
 end 
 
+#Calculates the number of sequences corresponding to any multiplicity of configurations of maximal interaction
+function calculate_g(sequences::Vector{Vector{Int}}, self_adjacency_triangles::Vector{Vector{Vector{Bool}}}, interaction_model)::Vector{Int}
+    len = Base.length(self_adjacency_triangles)
+    g = zeros(Int, len)
+    for sequence in sequences
+        Emax = 0
+        multiplicity = 0
+        for i in 1:len
+            E = calculate_self_interaction(sequence, self_adjacency_triangles[i], interaction_model)
+            if E == Emax
+                multiplicity += 1
+            elseif E > Emax
+                multiplicity = 1
+                Emax = E
+            end
+        end
+    
+        g[multiplicity] += 1
+    end
+    return g
+end
+
+#Calculates the number of sequences corresponding to any multiplicity of configurations of maximal interaction
+function calculate_g(sequences::Vector{Vector{Int}}, paths::Vector{Path}, interaction_model)
+    return calculate_g(sequences, path_self_adjacency_triangle.(paths), interaction_model)
+end
+
+
 function plot_compactedness_categorized(categorized_paths::Vector{Vector{Path}})
     bins = Base.length(categorized_paths)
+    binwidth = 1/(bins-1)
+    println(Base.length.(categorized_paths))
     fig = GLMakie.Figure(size=(800, 600), fontsize = 25)
     ax = Axis(
         fig[1, 1], 
-        title = "Number of sequences by compactedness", 
+        #title = "Number of sequences by compactedness", 
         xlabel = L"\rho", 
         ylabel = "Number of sequences",
         xgridvisible=false,
-        ygridvisible=false,
+        ygridvisible=true,
         xticklabelsize = 20,
-        yticklabelsize = 15,
+        yticklabelsize = 18,
         xticks = round.(0:1/(bins-1):1, digits = 2),
         yticklabelrotation = π/4,
         )
-    xlims!(ax, -0.1, 1.1)
+    xlims!(ax, -binwidth/2, 1+binwidth/2)
     ylims!(ax, 0, nothing)
     barplot!(ax, (0:bins-1)./(bins-1), Base.length.(categorized_paths))
     return fig
@@ -544,7 +615,27 @@ function plot_compactedness(paths::Vector{Path})
     plot_compactedness_categorized(categorized_paths)
 end
 
-len = 16
+function plot_g(g::Vector{Int})
+    bins = Base.length(g)
+    binwidth = 1
+    fig = Figure(size=(800, 600), fontsize = 25)
+    ax = Axis(
+        fig[1, 1],
+        xlabel = L"g(s)", 
+        ylabel = "Number of sequences",
+        xgridvisible=false,
+        ygridvisible=true,
+        xticklabelsize = 20,
+        yticklabelsize = 20,
+        xticks = round.(1:ceil(bins/15):bins, digits = 2),
+    )
+    xlims!(ax, 1-binwidth/2, bins+binwidth/2)
+    ylims!(ax, 0, nothing)
+    barplot!(ax, g)
+    return fig
+end
+
+len = 10
 dim = 2
 
 SAPs = unique_SAPs(len, dim)
@@ -552,34 +643,11 @@ categorized_SAPs = categorize_by_compactedness(SAPs)
 
 plot_compactedness_categorized(categorized_SAPs)
 
-self_adjacency_triangles = path_self_adjacency_triangle.(categorized_SAPs[Base.length(categorized_SAPs)])
+self_adjacency_triangles = path_self_adjacency_triangle.(SAPs)
 
 sequences = all_binary_sequences(len)
+sequences = random_binary_sequences(len, 10000)
+g = calculate_g(sequences, self_adjacency_triangles, multiplicative_binary_interaction_model)
+plot_g(g)
 
-function interaction_model(a,b)
-    return a*b
 end
-
-g = zeros(Int, Base.length(categorized_SAPs[Base.length(categorized_SAPs)]))
-
-count_unique_native = 0
-for sequence in sequences
-    Emax = 0
-    multiplicity = 0
-    for i in 1:Base.length(categorized_SAPs[Base.length(categorized_SAPs)])
-        E = calculate_self_interaction(sequence, self_adjacency_triangles[i], interaction_model)
-        if E == Emax
-            multiplicity += 1
-        elseif E > Emax
-            multiplicity = 1
-            Emax = E
-        end
-    end
-    
-    g[multiplicity] += 1
-end
-
-fig = Figure(size=(800, 600))
-ax = Axis(fig[1, 1])
-xlims!(ax, 0, 21)
-barplot!(ax, g)
