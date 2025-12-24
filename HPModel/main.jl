@@ -520,7 +520,7 @@ end
 
 function plot_compactedness_categorized(categorized_paths::Vector{Vector{Path}})
     bins = Base.length(categorized_paths)
-    GLMakie.fig = Figure(size=(800, 600), fontsize = 25)
+    fig = GLMakie.Figure(size=(800, 600), fontsize = 25)
     ax = Axis(
         fig[1, 1], 
         title = "Number of sequences by compactedness", 
