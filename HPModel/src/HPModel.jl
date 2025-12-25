@@ -152,7 +152,7 @@ function path_combine(path1::Path, path2::Path)::Path
     return Path(vcat(path1.vertices, path2.vertices[2:path2.length]), path1.asymmetry_flag | path2.asymmetry_flag)
 end
 
-#Concatenates tail to head two paths
+#Concatenates tail to seed two paths
 function path_concatenate(path1::Path{Vertex}, path2::Path{Vertex})::Path
     last_position = path1.vertices[path1.length].position
     return Path(vcat(path1.vertices, path_translate(path2, last_position).vertices[2:path2.length]), path1.asymmetry_flag | path2.asymmetry_flag)
@@ -179,11 +179,7 @@ function extend_SAP(state::State, dim::Int)::Vector{State}
             end
         end 
     end
-    if extensions_count != 0
-        return new_state_buffer[1:extensions_count]
-    else
-        return Vector{State}([])
-    end
+    return new_state_buffer[1:extensions_count]
 end
 
 #Asserts if a path has no rigid symmetries
@@ -218,57 +214,30 @@ function linear_transform(path::Path, matrix)::Path
     return linear_transform!(path_copy(path), matrix)
 end
 
-#Asserts if two paths are equivalent up to orthogonal transformations
-function are_equivalent(path1::Path, path2::Path)::Bool
-    if path1.length < path2.length
-        short_path = path1
-        long_path = path2
-    else
-        short_path = path2
-        long_path = path1
-    end
-    for matrix in O(dim(path_dim(path1)))
-        if are_equal(long_path, linear_transform(short_path, matrix))
-            return true
+#Assertrs if two paths are equivalent up to a set of linear transformations represented by specified matrices 
+function are_equivalent(path1::Path, path2::Path, matrices)::Bool
+    if path1.length == path2.length
+        for matrix in matrices
+            if are_equal(long_path, linear_transform(path1, matrix))
+                return true
+            end
         end
+        return false
     end
     return false
+end
+
+#Asserts if two paths are equivalent up to orthogonal transformations
+function are_equivalent(path1::Path, path2::Path)::Bool
+    return are_equivalent(path1, path2, path_dim(path1))
 end
 
 #Asserts if two paths are equivalent up to orthogonal transformations of specified dimension
 function are_equivalent(path1::Path, path2::Path, dim::Int)::Bool
-    if path1.length < path2.length
-        short_path = path1
-        long_path = path2
-    else
-        short_path = path2
-        long_path = path1
-    end
-    for matrix in O(dim)
-        if are_equal(long_path, linear_transform(short_path, matrix))
-            return true
-        end
-    end
-    return false
+    return are_equivalent(path1, path2, O(dim))::Bool
 end
 
-#Assertrs if two paths are equivalent up to a set of linear transformations represented by specified matrices 
-function are_equivalent(path1::Path, path2::Path, matrices)::Bool
-    #Order paths by length for higher efficiency
-    if path1.length < path2.length
-        short_path = path1
-        long_path = path2
-    else
-        short_path = path2
-        long_path = path1
-    end
-    for matrix in matrices
-        if are_equal(long_path, linear_transform(short_path, matrix))
-            return true
-        end
-    end
-    return false
-end
+
 
 #Constructrs a maximal subset of non-equivalent paths (under orthogonal transformation equivalence) from a given set
 function filter_equivalent(paths::Vector{Path}, dim::Int)::Vector{Path}
@@ -318,15 +287,15 @@ function filter_equivalent(states::Vector{State}, dim::Int, matrices)::Vector{St
 end
 
 #Finds all the minimal asymmetric paths up to a length together with the symmetric paths of the same length   
-function search_heads(length::Int, dim::Int)::Vector{Vector{State}}          
-    heads = Vector{Vector{State}}(undef, length) 
+function search_seeds(length::Int, dim::Int)::Vector{Vector{State}}          
+    seeds = Vector{Vector{State}}(undef, length) 
     if dim > 2
         max_size = Base.length(unique_SAPs(length,dim-1))*2
     else
         max_size = 1*2
     end
     matrices = O(dim)
-    heads_buffer = Vector{State}(undef, max_size)
+    seeds_buffer = Vector{State}(undef, max_size)
     states = Vector{State}(undef, max_size)
  
     next_states = Vector{State}(undef, max_size)
@@ -335,13 +304,13 @@ function search_heads(length::Int, dim::Int)::Vector{Vector{State}}
     states[1] = ZeroState(dim)
     states_count = 1
 
-    heads_count = 0
+    seeds_count = 0
     next_states_count = 0
     for i in 1:length-1
-        heads[i] = heads_buffer[1:heads_count]
+        seeds[i] = seeds_buffer[1:seeds_count]
         next_states_count = 0
         next_states_candidates_count = 0
-        heads_count = 0
+        seeds_count = 0
         for j in 1:states_count
             parent = states[j]
             children = extend_SAP(parent, dim)
@@ -351,8 +320,8 @@ function search_heads(length::Int, dim::Int)::Vector{Vector{State}}
                 ica = is_completely_asymmetric(child.path, dim)
                 symmetry_break = child.path.asymmetry_flag != parent.path.asymmetry_flag
                 if ica && is_first_completely_asymmetric
-                    heads_count += 1
-                    heads_buffer[heads_count] = state_copy(child)
+                    seeds_count += 1
+                    seeds_buffer[seeds_count] = state_copy(child)
                     is_first_completely_asymmetric = false
                 elseif symmetry_break && is_first_symmetry_break && !ica
                     next_states_count += 1
@@ -377,10 +346,10 @@ function search_heads(length::Int, dim::Int)::Vector{Vector{State}}
         end
         states_count = next_states_count
     end
-    heads_buffer[heads_count+1:heads_count+next_states_count] = next_states[1:next_states_count]
-    heads_count += next_states_count
-    heads[length] = heads_buffer[1:heads_count]
-    return heads
+    seeds_buffer[seeds_count+1:seeds_count+next_states_count] = next_states[1:next_states_count]
+    seeds_count += next_states_count
+    seeds[length] = seeds_buffer[1:seeds_count]
+    return seeds
 end
 
 #Constructs all the self avoiding paths up to a specified length
@@ -407,37 +376,37 @@ function search_bodies(length::Int, dim::Int)::Vector{Vector{State}}
 end
 
 #Combines two paths end to beginning, if there are collisions returns a trivial path
-function suture(head::Path, body::Path, dim::Int)
-    neck = head.vertices[head.length].position
+function suture(seed::Path, body::Path, dim::Int)
+    neck = seed.vertices[seed.length].position
     translated_body = path_translate(body, neck)
-    for head_vertex in head.vertices
+    for seed_vertex in seed.vertices
         for i in 1:Base.length(translated_body.vertices)
-            if head_vertex.position == translated_body.vertices[i].position && i!=1
+            if seed_vertex.position == translated_body.vertices[i].position && i!=1
                 return ZeroPath(dim)
             end
         end
     end
-    return path_combine(head, translated_body)
+    return path_combine(seed, translated_body)
 end
 
 #Combines two states end to beginning, if there are collisions returns a trivial state
-function suture(head::State, body::State, dim::Int)
-    return State(suture(head.path, body.path, dim))
+function suture(seed::State, body::State, dim::Int)
+    return State(suture(seed.path, body.path, dim))
 end 
 
 #Combines the elements of two sets of self avoiding paths in all possible ways
-function all_combination_suture(heads::Vector{Vector{State}}, bodies::Vector{Vector{State}}, length::Int, dim::Int)::Vector{Path}
+function all_combination_suture(seeds::Vector{Vector{State}}, bodies::Vector{Vector{State}}, length::Int, dim::Int)::Vector{Path}
     if length > dim
         buffer_size = 0
         for i in 1:length-dim        
-            buffer_size += Base.length(bodies[i]) * Base.length(heads[length-i+1])
+            buffer_size += Base.length(bodies[i]) * Base.length(seeds[length-i+1])
         end
         buffer = Vector{Path}(undef, buffer_size)
         buffer_idx = 0
         for i in 1:length-dim
             for body in bodies[i]
-                for head in heads[length-i+1]
-                    path = suture(head.path, body.path, dim)
+                for seed in seeds[length-i+1]
+                    path = suture(seed.path, body.path, dim)
                     if path.length != 1
                         buffer_idx += 1
                         buffer[buffer_idx] = path
@@ -447,15 +416,15 @@ function all_combination_suture(heads::Vector{Vector{State}}, bodies::Vector{Vec
         end
         return buffer[1:buffer_idx]
     else 
-        return [heads[dim][i].path for i in 1:Base.length(heads[dim])]
+        return [seeds[dim][i].path for i in 1:Base.length(seeds[dim])]
     end
 end
 
 #Construct all the possible self avoiding paths (modulo orthogonal group) up to a length
 function unique_SAPs(depth::Int, dim::Int)
-    heads = search_heads(depth, dim)
+    seeds = search_seeds(depth, dim)
     bodies = search_bodies(depth-dim, dim)
-    all_combinations = all_combination_suture(heads, bodies, depth, dim)
+    all_combinations = all_combination_suture(seeds, bodies, depth, dim)
     return all_combinations
 end
 
@@ -590,7 +559,6 @@ end
 function plot_compactedness_categorized(categorized_paths::Vector{Vector{Path}})
     bins = Base.length(categorized_paths)
     binwidth = 1/(bins-1)
-    println(Base.length.(categorized_paths))
     fig = GLMakie.Figure(size=(800, 600), fontsize = 25)
     ax = Axis(
         fig[1, 1], 
