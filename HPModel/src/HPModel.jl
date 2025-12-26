@@ -1,12 +1,12 @@
 module HPModel
 
-using BenchmarkTools
-using Profile
-using GLMakie
-using CairoMakie
+#using BenchmarkTools
+#using Profile
 using Combinatorics
 using StaticArrays
-using LaTeXStrings
+
+export Vertex, Path, State, search_seeds, search_bodies, suture, all_combinations_suture, unique_SAPs, all_binary_sequences, random_binary_sequences,
+path_self_adjacency_triangle, count_adjacent, calculate_self_interaction, multiplicative_binary_interaction_model, categorize_by_compactedness, calculate_g
 
 abstract type AbstractVertex end
 abstract type AbstractPath end
@@ -395,7 +395,7 @@ function suture(seed::State, body::State, dim::Int)
 end 
 
 #Combines the elements of two sets of self avoiding paths in all possible ways
-function all_combination_suture(seeds::Vector{Vector{State}}, bodies::Vector{Vector{State}}, length::Int, dim::Int)::Vector{Path}
+function all_combinations_suture(seeds::Vector{Vector{State}}, bodies::Vector{Vector{State}}, length::Int, dim::Int)::Vector{Path}
     if length > dim
         buffer_size = 0
         for i in 1:length-dim        
@@ -424,7 +424,7 @@ end
 function unique_SAPs(depth::Int, dim::Int)
     seeds = search_seeds(depth, dim)
     bodies = search_bodies(depth-dim, dim)
-    all_combinations = all_combination_suture(seeds, bodies, depth, dim)
+    all_combinations = all_combinations_suture(seeds, bodies, depth, dim)
     return all_combinations
 end
 
@@ -472,6 +472,17 @@ function multiplicative_binary_interaction_model(a,b)
     return a*b
 end
 
+#Interaction model by lee er al.
+function lee_binary_interaction(a,b)
+    if a == b == 1
+        return 2.3
+    elseif a == b == 0
+        return 0
+    else
+        return 1
+    end
+end
+
 #Specialized printing function for path visualization
 function print_path(path::Path)
     print("<")
@@ -496,7 +507,6 @@ end
 #Constructs all binary sequences of a specified lenght
 function all_binary_sequences(len::Int)::Vector{Vector{Int}}
     sequences = Vector{Vector{Int}}([zeros(len) for _ in 1:2^len])
-    print(typeof(sequences))
     for i in 1:2^len
         for j in 1:len
             sequences[i][j] = Int(UInt(i) >> (j-1) & UInt(1))
@@ -554,68 +564,5 @@ end
 function calculate_g(sequences::Vector{Vector{Int}}, paths::Vector{Path}, interaction_model)
     return calculate_g(sequences, path_self_adjacency_triangle.(paths), interaction_model)
 end
-
-
-function plot_compactedness_categorized(categorized_paths::Vector{Vector{Path}})
-    bins = Base.length(categorized_paths)
-    binwidth = 1/(bins-1)
-    fig = GLMakie.Figure(size=(800, 600), fontsize = 25)
-    ax = Axis(
-        fig[1, 1], 
-        #title = "Number of sequences by compactedness", 
-        xlabel = L"\rho", 
-        ylabel = "Number of sequences",
-        xgridvisible=false,
-        ygridvisible=true,
-        xticklabelsize = 20,
-        yticklabelsize = 18,
-        xticks = round.(0:1/(bins-1):1, digits = 2),
-        yticklabelrotation = π/4,
-        )
-    xlims!(ax, -binwidth/2, 1+binwidth/2)
-    ylims!(ax, 0, nothing)
-    barplot!(ax, (0:bins-1)./(bins-1), Base.length.(categorized_paths))
-    return fig
-end
-
-function plot_compactedness(paths::Vector{Path})
-    categorized_paths = categorize_by_compactedness(paths)
-    plot_compactedness_categorized(categorized_paths)
-end
-
-function plot_g(g::Vector{Int})
-    bins = Base.length(g)
-    binwidth = 1
-    fig = Figure(size=(800, 600), fontsize = 25)
-    ax = Axis(
-        fig[1, 1],
-        xlabel = L"g(s)", 
-        ylabel = "Number of sequences",
-        xgridvisible=false,
-        ygridvisible=true,
-        xticklabelsize = 20,
-        yticklabelsize = 20,
-        xticks = round.(1:ceil(bins/15):bins, digits = 2),
-    )
-    xlims!(ax, 1-binwidth/2, bins+binwidth/2)
-    ylims!(ax, 0, nothing)
-    barplot!(ax, g)
-    return fig
-end
-
-len = 10
-dim = 2
-
-SAPs = unique_SAPs(len, dim)
-categorized_SAPs = categorize_by_compactedness(SAPs)
-
-plot_compactedness_categorized(categorized_SAPs)
-
-self_adjacency_triangles = path_self_adjacency_triangle.(SAPs)
-
-sequences = all_binary_sequences(len)
-sequences = random_binary_sequences(len, 10000)
-g = calculate_g(sequences, self_adjacency_triangles, multiplicative_binary_interaction_model)
-plot_g(g)
 
 end
