@@ -1,12 +1,14 @@
 # HPModel.jl
-HPModel.jl is a Julia pakage that provides examples and tools relative to the Hydrophobic Polar Model. 
-It works in any dimension and has
-## Installation
-To install the package in your own project run in the REPL
-```julia
-  using Pkg
-  Pkg.add(url=)
-```
+HPModel.jl is a Julia pakage that provides tools and examples relative to the Hydrophobic Polar Model. 
+The directory `test/` contains two scripts that reproduce the required results of the two papers `Chan-Dill-1989` and `Lau-Dill-1989`  
+
+### Implemented extensions
+The pakage supports:
+- Any dimension
+- Any first neighbor interaction model that is compatible with the implemented data structures. In particular it supports the interaction model proposed by lee et al.
+- Computation of random sequences for lengthy structures
+(The compactness is calculated in the plot from `Chan-Dill-1989`)
+
 ## Documentation
 Here we leave some technical details of the functions and structures used in our code, it is advisable, to better understand the content of this document, to first read the [].
 ### Core structures
@@ -55,7 +57,8 @@ function extend_SAP(state::State, dim::Int)::Vector{State}
     return new_state_buffer[1:extensions_count]
 end
 ```
-This function extends a path avoiding self intersection, here the `State` structure comes useful to efficiently check the occupation of positions that are adjacent to that of the head
+This function extends a path avoiding self intersection, here the `State` structure comes useful to efficiently check the occupation of positions that are adjacent to that of the seed
+
 #### Equivalence of Paths
 ```julia
 function are_equivalent(path1::Path, path2::Path, matrices)::Bool
@@ -70,17 +73,19 @@ function are_equivalent(path1::Path, path2::Path, matrices)::Bool
     return false
 end
 ```
-This function checks if two paths can be superimposed by virtue of one of transformations provided in the argument as matrices, in our case these are nothing but the orthogonal matrices on $\mathbb Z_N$ (additional notes are provided in []).
+This function checks if two paths can be superimposed by virtue of one of transformations provided in the argument as matrices, in our case these are nothing but the orthogonal matrices on $\mathbb Z_N$.
+
+#### Seed search
 ```julia
-function search_heads(length::Int, dim::Int)::Vector{Vector{State}}          
-    heads = Vector{Vector{State}}(undef, length) 
+function search_seeds(length::Int, dim::Int)::Vector{Vector{State}}          
+    seeds = Vector{Vector{State}}(undef, length) 
     if dim > 2
         max_size = Base.length(unique_SAPs(length,dim-1))*2
     else
         max_size = 1*2
     end
     matrices = O(dim)
-    heads_buffer = Vector{State}(undef, max_size)
+    seeds_buffer = Vector{State}(undef, max_size)
     states = Vector{State}(undef, max_size)
  
     next_states = Vector{State}(undef, max_size)
@@ -89,13 +94,13 @@ function search_heads(length::Int, dim::Int)::Vector{Vector{State}}
     states[1] = ZeroState(dim)
     states_count = 1
 
-    heads_count = 0
+    seeds_count = 0
     next_states_count = 0
     for i in 1:length-1
-        heads[i] = heads_buffer[1:heads_count]
+        seeds[i] = seeds_buffer[1:seeds_count]
         next_states_count = 0
         next_states_candidates_count = 0
-        heads_count = 0
+        seeds_count = 0
         for j in 1:states_count
             parent = states[j]
             children = extend_SAP(parent, dim)
@@ -105,8 +110,8 @@ function search_heads(length::Int, dim::Int)::Vector{Vector{State}}
                 ica = is_completely_asymmetric(child.path, dim)
                 symmetry_break = child.path.asymmetry_flag != parent.path.asymmetry_flag
                 if ica && is_first_completely_asymmetric
-                    heads_count += 1
-                    heads_buffer[heads_count] = state_copy(child)
+                    seeds_count += 1
+                    seeds_buffer[seeds_count] = state_copy(child)
                     is_first_completely_asymmetric = false
                 elseif symmetry_break && is_first_symmetry_break && !ica
                     next_states_count += 1
@@ -131,12 +136,13 @@ function search_heads(length::Int, dim::Int)::Vector{Vector{State}}
         end
         states_count = next_states_count
     end
-    heads_buffer[heads_count+1:heads_count+next_states_count] = next_states[1:next_states_count]
-    heads_count += next_states_count
-    heads[length] = heads_buffer[1:heads_count]
-    return heads
+    seeds_buffer[seeds_count+1:seeds_count+next_states_count] = next_states[1:next_states_count]
+    seeds_count += next_states_count
+    seeds[length] = seeds_buffer[1:seeds_count]
+    return seeds
 end
 ```
+
 
 ### Additional Notes
 Considering the scope, efficiency was prioretized over safety, many functions may throw unhandled errors.
