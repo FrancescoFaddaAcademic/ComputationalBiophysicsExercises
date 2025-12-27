@@ -2,12 +2,12 @@ using HTTP
 using StaticArrays
 using CairoMakie
 
-const FS = 64 #Frame size (size of the partition blocks, must consider system architecture)
+const FS = Sys.WORD_SIZE #Frame size (size of the partition blocks, must consider system architecture)
 const EPF = Int(FS/2) #Number of bases in a frame 
 
 struct Strand #A strand always read from 5' to 3'
-    length::UInt64
-    bytes::UInt64
+    length::UInt
+    bytes::UInt
     literal::String
     binary::Vector{UInt64}
 end
@@ -17,10 +17,9 @@ end
 #a g c t/u
 
 const R = 1.987 #cal/K/mol
-
 const C = 1
 
-const ΔH = Vector{Float64}([-7.6, -8.2, -8.5, -7.2, -7.8, -8.0, -10.6, -8.5, -8.4, -9.8, -8.0, -8.2, -7.2, -8.4, -7.8, -7.6]*1000)
+const ΔH = Vector{Float64}([-7.6, -8.2, -8.5, -7.2, -7.8, -8.0, -10.6, -8.5, -8.4, -9.8, -8.0, -8.2, -7.2, -8.4, -7.8, -7.6] * 1000)
 const ΔS = Vector{Float64}([-21.3, -22.2, -22.7, -21.3, -21.0, -19.9, -27.2, -22.7, -22.4, -24.4, -19.9, -22.2, -20.4, -22.4, -21.0, -21.3])
 
 const H_init::Float64 = 0.2 
