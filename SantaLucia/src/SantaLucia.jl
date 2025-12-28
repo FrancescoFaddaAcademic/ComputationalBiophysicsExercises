@@ -13,13 +13,18 @@ invert,
 complementary_segment, 
 complementary_sequence,
 bitwise_binary_check, 
-inner_potentials, 
 terminal_AT_penalty, 
 symmetry_correction, 
-thermodynamic_potentials, 
+inner_thermodynamic_contribution, 
 melting_temperature, 
 melting_curve, 
-create_NN_template
+create_NN_template,
+are_complementary,
+loop_thermodynamic_contribution,
+HairPin,
+SingleStrand,
+extract_hairpins!,
+sequence_potentials
 
 const word_size = Sys.WORD_SIZE
 const bases_symbols = SVector{4,Char}(['A', 'G', 'C', 'T'])
@@ -48,6 +53,7 @@ end
 mutable struct HairPin
     loop_length::UInt
     paired_sequence::Sequence
+    type::Char
 end
 
 mutable struct SingleStrand
@@ -206,7 +212,7 @@ are_equal(s1, s2) = bitwise_binary_check((a,b)->(a ⊻ b), s1, s2)
 
 are_complementary(s1, s2) = bitwise_binary_check((a,b)->~(a ⊻ b), s1, invert(s2))
 
-function inner_potentials(sequence::Sequence, data::DataFrame)::Vector{Float64}
+function inner_thermodynamic_contribution(sequence::Sequence, data::DataFrame)::Vector{Float64}
     segment = sequence.binary
     ΔH = 0.0
     ΔS = 0.0
@@ -237,7 +243,7 @@ end
 
 function sequence_potentials(sequence::Sequence, data_inner::DataFrame)::Vector{Float64}
     Δ = [0.2e3, -5.7]
-    Δ += inner_potentials(sequence, data_inner)
+    Δ += inner_thermodynamic_contribution(sequence, data_inner)
     Δ += terminal_AT_penalty(sequence)
     Δ += symmetry_correction(sequence)
     return Δ
@@ -343,8 +349,8 @@ function SingleStrand(sequence_lit::String, dotparen_lit::String)
     return SingleStrand(Sequence(sequence_binary), Structure(structure_binary), len)
 end
 
-function Ring(length, pair::UInt)
-    HairPin(length, Sequence(pair, 4))
+function Ring(length, pair::UInt, type::Char)
+    HairPin(length, Sequence(pair, 4), type)
 end
 
 function integrate(structure::Structure)
@@ -366,63 +372,60 @@ function extract_hairpins!(strand::SingleStrand, hairPins::Vector{HairPin})
     loop_length = count(x -> x == UInt(1), [unpack(strand.structure.binary, UInt(i)) for i in ones_idxs])
     first_element = unpack(strand.sequence.binary, 1)
     second_element = unpack(strand.sequence.binary, strand.length)
-    println(bitstring(first_element))
-    println(bitstring(second_element))
-    println()
     if ~(first_element ⊻ second_element) & masks[1] == 0
         outer_pair = first_element | second_element << 2
     else
         error("Structure and sequence are not compatible")
     end
-    attachment_number = 0
+    has_marginal = false
+    children_number = 0
     i = 1
     while i <= length(ones_idxs)
-        structure = unpack(strand.structure.binary, UInt(ones_idxs[i]))
+        structure = unpack(strand.structure.binary, ones_idxs[i])
         if structure == 2
+            if unpack(strand.structure.binary, ones_idxs[i]-1) == 2 || unpack(strand.structure.binary, ones_idxs[i+1]) == 0
+                has_marginal = true
+            end
             extract_hairpins!(substrand(strand, collect(ones_idxs[i]:ones_idxs[i+1]-1)), hairPins)
-            attachment_number += 1
+            children_number += 1
         end
         i += 1
     end
-    println(attachment_number)
-    if loop_length == 0 && attachment_number == 1
+    only_child = children_number == 1
+
+    if loop_length == 0 && only_child 
         extend!(hairPins[end], outer_pair)
-    else 
-        push!(hairPins, Ring(loop_length, outer_pair))
+    elseif has_marginal && only_child
+        push!(hairPins, Ring(loop_length, outer_pair, 'B'))
+    elseif children_number == 0 
+        push!(hairPins, Ring(loop_length, outer_pair, 'H'))
+    else
+        push!(hairPins, Ring(loop_length, outer_pair, 'I'))
     end
 end
 
-function loop_contribution_G(hairPin::HairPin)
-    if 2 < hairPin.loop_length < 10
-        loop_contribution_array = [3.2,3.6,4.0,4.4,4.6,4.7,4.8]
-        return loop_contribution_array[hairPin.loop_length]
-    elseif hairPin.loop_length > 9
-        return 4.8 + 1.75*R*T
+function loop_thermodynamic_contribution(hairPin::HairPin, hairpin_data::DataFrame, internal_loop_data::DataFrame, bulge_data::DataFrame)::Vector{Float64}
+    is_long = hairPin.loop_length > 9
+    if hairPin.type == 'H'
+        data = hairpin_data
+        if hairPin.loop_length < 3
+            error("Hairpin of length < 3 detected, the structure is too unstable")
+        end
+    elseif hairPin.type == 'I'
+        data = internal_loop_data
+        if hairPin.loop_length < 4
+            error("Internal loop of length < 4 detected, the structure is too unstable")
+        end
+    elseif hairPin.type == 'B'
+        data = bulge_data
     else
-    end 
+        error("Unrecognized loop structure")
+    end
+    if is_long
+        return [data[9,"Enthalpy"], data[9,"Entropy"]+1.75*R*log(hairPin.loop_length/9)]
+    else
+        return [data[hairPin.loop_length,"Enthalpy"], data[hairPin.loop_length,"Entropy"]]
+    end
 end
-
-function loop_contribution_H()
-end
-
-function loop_contribution_S(T::Float64)
-end
-
-function hairpin_potentials(hairPin::HairPin, data_inner::DataFrame)::Vector{Float64}
-    loop_contributions_G37 = [3.2,3.6,4.0,4.4,4.6,4.7,4.8]
-    loop_contributions_H = []
-    Δ = sequence_potentials(hairPin.paired_sequence, data_inner)
-    
-end
-
-strand = SingleStrand("TA","()")
-
-hairPins = Vector{HairPin}([])
-
-extract_hairpins!(strand, hairPins)
-
-hairPins
-
-
 
 end
