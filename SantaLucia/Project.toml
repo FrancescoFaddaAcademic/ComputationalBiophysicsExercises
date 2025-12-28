@@ -2,3 +2,13 @@ name = "SantaLucia"
 uuid = "2d60d980-6099-4c7e-911e-bef05dfb2c81"
 version = "0.1.0"
 authors = ["Francesco Fadda <francesco.fadda.personal@gmail.com>"]
+
+[deps]
+CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
+DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+
+[compat]
+CSV = "0.10.15"
+DataFrames = "1.8.1"
+StaticArrays = "1.9.15"
