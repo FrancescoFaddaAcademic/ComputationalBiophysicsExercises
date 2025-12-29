@@ -6,7 +6,7 @@ using Combinatorics
 using StaticArrays
 
 export Vertex, Path, State, search_seeds, search_bodies, suture, all_combinations_suture, unique_SAPs, all_binary_sequences, random_binary_sequences,
-path_self_adjacency_triangle, count_adjacent, calculate_self_interaction, multiplicative_binary_interaction_model, categorize_by_compactedness, calculate_g
+path_self_adjacency_triangle, count_adjacent, calculate_self_interaction, multiplicative_binary_interaction_model, categorize_by_compactedness, calculate_g, topological_SAPs
 
 abstract type AbstractVertex end
 abstract type AbstractPath end
@@ -43,9 +43,8 @@ function ZeroState(dim::Int)::State
     return State(ZeroPath(dim), occupation)
 end
 
-Path(vertices::Vector{Vertex}, asymmetry_flag) = Path{Vertex}(vertices, Base.length(vertices), asymmetry_flag)
-Path(vertices::Vector{Vector{Int}}, asymmetry_flag) = Path{Vertex}([Vertex(vertices[i]) for i in 1:Base.length(vertices)], Base.length(vertices), asymmetry_flag)
-Path(vertices::Vector{Vector{Int}}, colors::Vector{Int}, asymmetry_flag) = Path{ColoredVertex}([ColoredVertex(vertices[i], colors[i]) for i in 1:length(vertices)], length(vertices), asymmetry_flag)
+@inline Path(vertices::Vector{Vertex}, asymmetry_flag) = Path{Vertex}(vertices, Base.length(vertices), asymmetry_flag)
+@inline Path(vertices::Vector{Vector{Int}}, asymmetry_flag) = Path{Vertex}([Vertex(vertices[i]) for i in 1:Base.length(vertices)], Base.length(vertices), asymmetry_flag)
 
 #Extracts the dimension from the path
 function path_dim(path::Path)::Int
@@ -53,7 +52,7 @@ function path_dim(path::Path)::Int
 end
 
 #Initializes a state from a given path
-function State(path::Path)::State
+@inline function State(path::Path)::State
     dim = Base.length(path.vertices[1].position)
     occupation = fill(false, fill(path.length*2+1, dim)...)
     for vertex in path.vertices
@@ -94,31 +93,35 @@ end
 matrix_number(dim::Int) = factorial(dim)*2^dim
 
 #Asymmetry key corresponding to full asymmetry
-asymm_key(dim::Int) = sum(2 .^(0:dim-1))
+asymm_key(dim::Int) = sum(2 .^(1:dim))
 
 #Translates the centered index into that of the gird axis. Bound checking is performed by the Array structure
-centered_index(index::Vector{Int}, radius::Int) = ntuple(i -> radius + index[i] + 1, Base.length(index))
+@inline centered_index(index::Vector{Int}, radius::Int) = ntuple(i -> radius + index[i] + 1, Base.length(index))
 
 #Extends a path regardless of collisions
-function path_extend(path::Path{Vertex}, new_position::Vector{Int})::Path
+function path_extend(path::Path{Vertex}, new_position::Vector{Int}, dim::Integer)::Path
     broken_symmetries_vector = Int.(new_position .!= 0)
     broken_symmetries_flag = UInt(0)
+    uniqueness_bit = (path.asymmetry_flag ⊻ asymm_key(dim)) == 0
     for i in eachindex(broken_symmetries_vector)
-        broken_symmetries_flag += UInt(broken_symmetries_vector[i] * 2^(i-1))
+        broken_symmetries_flag += UInt(broken_symmetries_vector[i] * 2^(i))
     end
-    return Path(vcat(path.vertices, Vertex(new_position)), path.length + 1, path.asymmetry_flag | broken_symmetries_flag)
+    return Path(vcat(path.vertices, Vertex(new_position)), path.length + 1, path.asymmetry_flag | broken_symmetries_flag | uniqueness_bit)
 end
 
 #Extends a state regardless of collisions 
 function state_extend(state::State, new_position::Vector{Int}, dim::Int)::State
     path = state.path
-    new_side_length = (path.length+1)*2+1
+    len = path.length
+    new_len = len + 1 
+    cent_index = centered_index(new_position, new_len)
+    new_side_length = 2new_len + 1
     new_size = ntuple(_-> new_side_length, dim)
     new_occupation = fill(false, new_size...)
-    window = ntuple(_->2:(path.length*2+1)+1, dim)
+    window = ntuple(_->2:new_side_length - 1, dim)
     new_occupation[window...] = state.occupation
-    new_occupation[centered_index(new_position, path.length+1)...] = true
-    new_path = path_extend(path, new_position)
+    new_occupation[cent_index...] = true
+    new_path = path_extend(path, new_position, dim)
     return State(new_path, new_occupation)
 end
 
@@ -148,7 +151,7 @@ function path_translate(path::Path, translation_vector::Vector{Int})::Path
 end 
 
 #Creates a path containing all the element of the first argument and all but the first elements of the second
-function path_combine(path1::Path, path2::Path)::Path
+@inline function path_combine(path1::Path, path2::Path)::Path
     return Path(vcat(path1.vertices, path2.vertices[2:path2.length]), path1.asymmetry_flag | path2.asymmetry_flag)
 end
 
@@ -218,7 +221,7 @@ end
 function are_equivalent(path1::Path, path2::Path, matrices)::Bool
     if path1.length == path2.length
         for matrix in matrices
-            if are_equal(long_path, linear_transform(path1, matrix))
+            if are_equal(path1, linear_transform(path2, matrix))
                 return true
             end
         end
@@ -426,6 +429,66 @@ function unique_SAPs(depth::Int, dim::Int)
     bodies = search_bodies(depth-dim, dim)
     all_combinations = all_combinations_suture(seeds, bodies, depth, dim)
     return all_combinations
+end
+
+function fast_flatten(nested::Vector{Vector{T}})::Vector{T} where T 
+    len = sum(length, nested)
+    flattened = Vector{T}(undef, len)
+    offset = 1
+    for vector in nested
+        flattened[offset:offset+length(vector)-1] = vector
+        offset += length(vector)
+    end
+    return flattened
+end
+
+function get_duplicate_free(states::Vector{State}, dim::Integer, matrices)::Vector{State}
+    len = length(states)
+    symm_buffer = Vector{State}(undef, len)
+    asym_buffer = Vector{State}(undef, len)
+    symm_count = 0
+    asym_count = 0
+    for state in states
+        if state.path.asymmetry_flag & UInt(1) == 1
+            asym_count += 1
+            asym_buffer[asym_count] = state
+        else
+            is_unique = true
+            for i in 1:symm_count
+                is_unique &= !are_equivalent(state.path, symm_buffer[i].path, matrices)
+            end
+            if is_unique
+                symm_count += 1
+                symm_buffer[symm_count] = state
+            end
+        end
+    end
+    duplicate_free = Vector{State}(undef, symm_count + asym_count)
+    duplicate_free[1:symm_count] = symm_buffer[1:symm_count]
+    duplicate_free[(symm_count+1):(symm_count+asym_count)] = asym_buffer[1:asym_count]
+    return duplicate_free
+end
+"""
+function topological_SAPs(depth::Integer, dim::Integer)::Vector{Vector{State}}
+    topological_SAPs = Vector{Vector{State}}(undef, depth)
+    topological_SAPs[1] = [ZeroState(dim)]
+    matrices = O(dim)
+    for i in 1:depth-1
+        buffer = fast_flatten(extend_SAP.(topological_SAPs[i], dim))
+        topological_SAPs[i+1] = get_duplicate_free(buffer, dim, matrices)
+    end
+    return topological_SAPs
+end
+"""
+function topological_SAPs(depth::Integer, dim::Integer)::Vector{Vector{State}}
+    topological_SAPs = Vector{Vector{State}}(undef, depth)
+    topological_SAPs[1] = [ZeroState(dim)]
+    matrices = O(dim)
+    for i in 1:depth-1
+        buffer = extend_SAP.(topological_SAPs[i], dim)
+        topological_SAPs[i+1] = fast_flatten([get_duplicate_free(vector, dim, matrices) for vector in buffer])
+    end
+    return topological_SAPs
 end
 
 #SELF INTERACTION METHODS ----------------------------------------------------------------------

@@ -30,8 +30,6 @@ const word_size = Sys.WORD_SIZE
 const bases_symbols = SVector{4,Char}(['A', 'G', 'C', 'T'])
 const dotparen_symbols = SVector{3, Char}([')','.','('])
 const keys = SVector{4,UInt}([0, 1, 2, 3])
-
-#Si noti che bases[keys[i]+1] restituisce bases[i]
 const masks = SVector{32,UInt}([2^(2*i)+2^(2*i + 1) for i in 0:(word_size/2)-1])
 
 const R = 1.987

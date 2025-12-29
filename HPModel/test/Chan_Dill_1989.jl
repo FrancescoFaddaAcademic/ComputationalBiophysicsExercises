@@ -1,6 +1,8 @@
 using HPModel
 using LaTeXStrings
 using GLMakie
+using BenchmarkTools
+using Profile
 
 #This test reproduces Table1 and Figure2 from the article [Chan-Dill 1989] 
 
@@ -33,11 +35,11 @@ function print_compactness_table(depth::Int)
         print(lpad("t=$i", padwidth))
     end
     print("\n")
-    dim = 2
+    dim = 3
     for len in 3:depth
         SAPs = unique_SAPs(len, dim)
+        categorized_SAPs = categorize_by_compactedness(SAPs)
         print(lpad(len, padwidth)*lpad(length(SAPs), padwidth))
-        
         for category in categorized_SAPs
             print(lpad(length(category), padwidth))
         end
@@ -53,7 +55,17 @@ function print_histogram()
     categorized_SAPs = categorize_by_compactedness(SAPs)
     plot_compactedness_categorized(categorized_SAPs)
 end
+print(".")
+#@benchmark SAPs = topological_SAPs(10, 2)
 
-print_compactness_table(16)
-print_histogram()
+#print(".")
+@benchmark SAPs = unique_SAPs(10, 2)
+#for i in 1:16
+#        categorize_by_compactedness(Vector{Path}([state.path for state in SAPs[i]]))
+#end
+#print(".")
+#print_compactness_table(7)
+#print_histogram()
+
+
 
