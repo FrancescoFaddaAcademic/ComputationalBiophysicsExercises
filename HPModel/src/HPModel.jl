@@ -6,12 +6,12 @@ using Combinatorics
 using StaticArrays
 
 export Vertex, Path, State, search_seeds, search_bodies, suture, all_combinations_suture, unique_SAPs, all_binary_sequences, random_binary_sequences,
-path_self_adjacency_triangle, count_adjacent, calculate_self_interaction, multiplicative_binary_interaction_model, categorize_by_compactedness, calculate_g, topological_SAPs
+path_self_adjacency_triangle, count_adjacent, calculate_self_interaction, multiplicative_binary_interaction_model, categorize_by_compactness, calculate_g, topological_SAPs
 
 abstract type AbstractVertex end
 abstract type AbstractPath end
 
-mutable struct Vertex <: AbstractVertex
+struct Vertex <: AbstractVertex
     position::Vector{Int}
 end
 
@@ -161,7 +161,7 @@ function path_concatenate(path1::Path{Vertex}, path2::Path{Vertex})::Path
     return Path(vcat(path1.vertices, path_translate(path2, last_position).vertices[2:path2.length]), path1.asymmetry_flag | path2.asymmetry_flag)
 end
 
-#Extends a self avoiding path 
+#Extends a self avoiding path using states
 function extend_SAP(state::State, dim::Int)::Vector{State} 
     path = state.path
     occupation = state.occupation
@@ -183,6 +183,33 @@ function extend_SAP(state::State, dim::Int)::Vector{State}
         end 
     end
     return new_state_buffer[1:extensions_count]
+end
+
+function is_in(path::Path, position::Vector{Int})::Bool
+    for vertex in path.vertices
+        if vertex.position == position
+            return true
+        end
+    end
+    return false 
+end
+
+#Extensd a self avoiding path without states
+function extend_SAP(path::Path, dim::Int, base_vectors::Vector{Vector{Int}})::Vector{Path} 
+    buffer = Vector{Path}(undef, 2*dim)
+    last_position = path.vertices[path.length].position
+    extensions_count = 0
+    for axis_idx in 1:dim
+        for sign in [+1,-1]
+            step = sign * base_vectors[axis_idx]
+            new_position = last_position + step
+            if !is_in(path, new_position)
+                extensions_count += 1
+                buffer[extensions_count] = path_extend(path, new_position, dim)
+            end
+        end 
+    end
+    return buffer[1:extensions_count]
 end
 
 #Asserts if a path has no rigid symmetries
@@ -207,14 +234,14 @@ end
 #Transforms a path accordingly to a specified transformation matrix (modifies mutable content!)
 function linear_transform!(path::Path, matrix)::Path
     for vertex in path.vertices
-        vertex.position = matrix * vertex.position
+        vertex.position .= matrix * vertex.position
     end
     return path
 end
 
 #Creates a copy of a path and transforms it according to a specified transformation matrix
 function linear_transform(path::Path, matrix)::Path
-    return linear_transform!(path_copy(path), matrix)
+    return linear_transform!(deepcopy(path), matrix)
 end
 
 #Assertrs if two paths are equivalent up to a set of linear transformations represented by specified matrices 
@@ -442,50 +469,40 @@ function fast_flatten(nested::Vector{Vector{T}})::Vector{T} where T
     return flattened
 end
 
-function get_duplicate_free(states::Vector{State}, dim::Integer, matrices)::Vector{State}
-    len = length(states)
-    symm_buffer = Vector{State}(undef, len)
-    asym_buffer = Vector{State}(undef, len)
+function get_duplicate_free(paths::Vector{Path}, dim::Integer, matrices)::Vector{Path}
+    len = length(paths)
+    symm_buffer = Vector{Path}(undef, len)
+    asym_buffer = Vector{Path}(undef, len)
     symm_count = 0
     asym_count = 0
-    for state in states
-        if state.path.asymmetry_flag & UInt(1) == 1
+    for path in paths
+        if path.asymmetry_flag & 1 == 1
             asym_count += 1
-            asym_buffer[asym_count] = state
-        else
+            asym_buffer[asym_count] = path
+        else           
             is_unique = true
             for i in 1:symm_count
-                is_unique &= !are_equivalent(state.path, symm_buffer[i].path, matrices)
+                is_unique &= !are_equivalent(symm_buffer[i], path, matrices)
             end
             if is_unique
                 symm_count += 1
-                symm_buffer[symm_count] = state
+                symm_buffer[symm_count] = path
             end
         end
     end
-    duplicate_free = Vector{State}(undef, symm_count + asym_count)
+    duplicate_free = Vector{Path}(undef, symm_count + asym_count)
     duplicate_free[1:symm_count] = symm_buffer[1:symm_count]
     duplicate_free[(symm_count+1):(symm_count+asym_count)] = asym_buffer[1:asym_count]
     return duplicate_free
 end
-"""
-function topological_SAPs(depth::Integer, dim::Integer)::Vector{Vector{State}}
-    topological_SAPs = Vector{Vector{State}}(undef, depth)
-    topological_SAPs[1] = [ZeroState(dim)]
+
+function topological_SAPs(depth::Integer, dim::Integer)::Vector{Vector{Path}}
+    topological_SAPs = Vector{Vector{Path}}(undef, depth)
+    topological_SAPs[1] = [ZeroPath(dim)]
     matrices = O(dim)
+    base_vectors = compute_base_vectors(dim)
     for i in 1:depth-1
-        buffer = fast_flatten(extend_SAP.(topological_SAPs[i], dim))
-        topological_SAPs[i+1] = get_duplicate_free(buffer, dim, matrices)
-    end
-    return topological_SAPs
-end
-"""
-function topological_SAPs(depth::Integer, dim::Integer)::Vector{Vector{State}}
-    topological_SAPs = Vector{Vector{State}}(undef, depth)
-    topological_SAPs[1] = [ZeroState(dim)]
-    matrices = O(dim)
-    for i in 1:depth-1
-        buffer = extend_SAP.(topological_SAPs[i], dim)
+        buffer = [extend_SAP(path, dim, base_vectors) for path in topological_SAPs[i]]
         topological_SAPs[i+1] = fast_flatten([get_duplicate_free(vector, dim, matrices) for vector in buffer])
     end
     return topological_SAPs
@@ -590,8 +607,8 @@ function random_binary_sequences(len::Int, number::Int)::Vector{Vector{Int}}
     return sequences
 end
 
-#Organizes paths by compactedness
-function categorize_by_compactedness(paths::Vector{Path})::Vector{Vector{Path}}
+#Organizes paths by compactness
+function categorize_by_compactness(paths::Vector{Path})::Vector{Vector{Path}}
     self_adjacency_triangles = path_self_adjacency_triangle.(paths)
     adjacency_count = count_adjacent.(self_adjacency_triangles)
     categories = Vector{Vector{Path}}([[] for _ in 1:maximum(adjacency_count)+1])

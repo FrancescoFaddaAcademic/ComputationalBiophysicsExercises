@@ -6,13 +6,13 @@ using Profile
 
 #This test reproduces Table1 and Figure2 from the article [Chan-Dill 1989] 
 
-function plot_compactedness_categorized(categorized_paths::Vector{Vector{Path}})
+function plot_compactness_categorized(categorized_paths::Vector{Vector{Path}})
     bins = Base.length(categorized_paths)
     binwidth = 1/(bins-1)
     fig = Figure(size=(800, 600), fontsize = 25)
     ax = Axis(
         fig[1, 1], 
-        #title = "Number of sequences by compactedness", 
+        #title = "Number of sequences by compactness", 
         xlabel = L"\rho", 
         ylabel = "Number of sequences",
         xgridvisible=false,
@@ -28,18 +28,17 @@ function plot_compactedness_categorized(categorized_paths::Vector{Vector{Path}})
     return fig
 end
 
-function print_compactness_table(depth::Int)
+function print_compactness_table1(depth::Integer, dim::Integer)
     padwidth = 10
     print(lpad("Length", padwidth)*lpad("Number", padwidth))
     for i in 0:9
         print(lpad("t=$i", padwidth))
     end
     print("\n")
-    dim = 3
+    SAPs = topological_SAPs(depth, dim)
     for len in 3:depth
-        SAPs = unique_SAPs(len, dim)
-        categorized_SAPs = categorize_by_compactedness(SAPs)
-        print(lpad(len, padwidth)*lpad(length(SAPs), padwidth))
+        categorized_SAPs = categorize_by_compactness(SAPs[len])
+        print(lpad(len, padwidth)*lpad(length(SAPs[len]), padwidth))
         for category in categorized_SAPs
             print(lpad(length(category), padwidth))
         end
@@ -48,24 +47,13 @@ function print_compactness_table(depth::Int)
     print("\n")
 end
 
-function print_histogram()
-    len = 16
-    dim = 2
-    SAPs = unique_SAPs(len, dim)
-    categorized_SAPs = categorize_by_compactedness(SAPs)
-    plot_compactedness_categorized(categorized_SAPs)
+function print_histogram(len::Integer, dim::Integer)
+    SAPs = topological_SAPs(len, dim)
+    categorized_SAPs = categorize_by_compactness(SAPs[len])
+    plot_compactness_categorized(categorized_SAPs)
 end
-print(".")
-#@benchmark SAPs = topological_SAPs(10, 2)
 
-#print(".")
-@benchmark SAPs = unique_SAPs(10, 2)
-#for i in 1:16
-#        categorize_by_compactedness(Vector{Path}([state.path for state in SAPs[i]]))
-#end
-#print(".")
-#print_compactness_table(7)
-#print_histogram()
-
+print_compactness_table1(16, 2)
+print_histogram(16, 2)
 
 
