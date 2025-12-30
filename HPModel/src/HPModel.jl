@@ -5,7 +5,7 @@ module HPModel
 using Combinatorics
 using StaticArrays
 
-export Vertex, Path, State, search_seeds, search_bodies, suture, all_combinations_suture, unique_SAPs, all_binary_sequences, random_binary_sequences,
+export Vertex, Path, State, search_seeds, search_sprouts, suture, all_combinations_suture, unique_SAPs, all_binary_sequences, random_binary_sequences,
 path_self_adjacency_triangle, count_adjacent, calculate_self_interaction, multiplicative_binary_interaction_model, categorize_by_compactness, calculate_g, topological_SAPs
 
 abstract type AbstractVertex end
@@ -248,11 +248,13 @@ end
 function are_equivalent(path1::Path, path2::Path, matrices)::Bool
     if path1.length == path2.length
         for matrix in matrices
-            if are_equal(path1, linear_transform(path2, matrix))
+            linear_transform!(path2, matrix)
+            if are_equal(path1, path2)
+                linear_transform!(path2, inv(matrix))
                 return true
             end
+            linear_transform!(path2, inv(matrix))
         end
-        return false
     end
     return false
 end
@@ -267,7 +269,65 @@ function are_equivalent(path1::Path, path2::Path, dim::Int)::Bool
     return are_equivalent(path1, path2, O(dim))::Bool
 end
 
+#Fuses avector of vector in a single vector
+function fast_flatten(nested::Vector{Vector{T}})::Vector{T} where T 
+    len = sum(length, nested)
+    flattened = Vector{T}(undef, len)
+    offset = 1
+    for vector in nested
+        flattened[offset:offset+length(vector)-1] = vector
+        offset += length(vector)
+    end
+    return flattened
+end
 
+#Selects one single representative for each equivalence class
+function get_duplicate_free(paths::Vector{Path}, dim::Integer, matrices)::Vector{Path}
+    len = length(paths)
+    buffer = Vector{Path}(undef, len)
+    buffer_count = 0
+    for path in paths      
+        is_unique = true
+        for i in 1:buffer_count
+            is_unique &= !are_equivalent(buffer[i], path, matrices)
+        end
+        if is_unique
+            buffer_count += 1
+            buffer[buffer_count] = path
+        end
+    end
+    duplicate_free = Vector{Path}(undef, buffer_count)
+    duplicate_free[1:buffer_count] = buffer[1:buffer_count]
+    return duplicate_free
+end
+
+#Constructs all the possible topological self avoiding paths up to a specified length 
+function topological_SAPs(depth::Integer, dim::Integer)::Vector{Vector{Path}}
+    topological_SAPs = Vector{Vector{Path}}(undef, depth)
+    topological_SAPs[1] = [ZeroPath(dim)]
+    matrices = O(dim)
+    base_vectors = compute_base_vectors(dim)
+    for i in 1:depth-1
+        buffer = Vector{Path}(undef, (2dim)*length(topological_SAPs[i]))
+        buffer_count = 0
+        for path in topological_SAPs[i]
+            extended_SAPs = extend_SAP(path, dim, base_vectors)
+            if (path.asymmetry_flag ⊻ asymm_key(dim)) >> 1 == 0
+                len = length(extended_SAPs)
+                buffer[buffer_count+1:buffer_count + len] = extended_SAPs
+            else 
+                duplicate_free = get_duplicate_free(extended_SAPs, dim, matrices)
+                len = length(duplicate_free)
+                buffer[buffer_count+1:buffer_count + len] = duplicate_free
+            end
+            buffer_count += len
+        end
+        topological_SAPs[i+1] = buffer[1:buffer_count]
+    end
+    return topological_SAPs
+end
+
+#ALTERNATIVE METHOD (Functioning but unused) ----------------------------------------------- 
 
 #Constructrs a maximal subset of non-equivalent paths (under orthogonal transformation equivalence) from a given set
 function filter_equivalent(paths::Vector{Path}, dim::Int)::Vector{Path}
@@ -383,60 +443,60 @@ function search_seeds(length::Int, dim::Int)::Vector{Vector{State}}
 end
 
 #Constructs all the self avoiding paths up to a specified length
-function search_bodies(length::Int, dim::Int)::Vector{Vector{State}}
+function search_sprouts(length::Int, dim::Int)::Vector{Vector{State}}
     if length > 0
-        bodies_buffer = [Vector{State}(undef, (2*dim)^(i-1)) for i in 1:length]
-        bodies = Vector{Vector{State}}(undef, length)
-        bodies[1] = [State(ZeroPath(dim))]
+        sprouts_buffer = [Vector{State}(undef, (2*dim)^(i-1)) for i in 1:length]
+        sprouts = Vector{Vector{State}}(undef, length)
+        sprouts[1] = [State(ZeroPath(dim))]
         for i in 2:length
             count = 0
-            for body in bodies[i-1]
-                children = extend_SAP(body, dim)
+            for sprout in sprouts[i-1]
+                children = extend_SAP(sprout, dim)
                 for child in children
-                    bodies_buffer[i][count+1] = child
+                    sprouts_buffer[i][count+1] = child
                     count += 1
                 end
             end
-            bodies[i] = bodies_buffer[i][1:count]
+            sprouts[i] = sprouts_buffer[i][1:count]
         end
-        return bodies
+        return sprouts
     else
         return Vector{Vector{State}}([[ZeroState(dim)]])
     end
 end
 
 #Combines two paths end to beginning, if there are collisions returns a trivial path
-function suture(seed::Path, body::Path, dim::Int)
+function suture(seed::Path, sprout::Path, dim::Int)
     neck = seed.vertices[seed.length].position
-    translated_body = path_translate(body, neck)
+    translated_sprout = path_translate(sprout, neck)
     for seed_vertex in seed.vertices
-        for i in 1:Base.length(translated_body.vertices)
-            if seed_vertex.position == translated_body.vertices[i].position && i!=1
+        for i in 1:Base.length(translated_sprout.vertices)
+            if seed_vertex.position == translated_sprout.vertices[i].position && i!=1
                 return ZeroPath(dim)
             end
         end
     end
-    return path_combine(seed, translated_body)
+    return path_combine(seed, translated_sprout)
 end
 
 #Combines two states end to beginning, if there are collisions returns a trivial state
-function suture(seed::State, body::State, dim::Int)
-    return State(suture(seed.path, body.path, dim))
+function suture(seed::State, sprout::State, dim::Int)
+    return State(suture(seed.path, sprout.path, dim))
 end 
 
 #Combines the elements of two sets of self avoiding paths in all possible ways
-function all_combinations_suture(seeds::Vector{Vector{State}}, bodies::Vector{Vector{State}}, length::Int, dim::Int)::Vector{Path}
+function all_combinations_suture(seeds::Vector{Vector{State}}, sprouts::Vector{Vector{State}}, length::Int, dim::Int)::Vector{Path}
     if length > dim
         buffer_size = 0
         for i in 1:length-dim        
-            buffer_size += Base.length(bodies[i]) * Base.length(seeds[length-i+1])
+            buffer_size += Base.length(sprouts[i]) * Base.length(seeds[length-i+1])
         end
         buffer = Vector{Path}(undef, buffer_size)
         buffer_idx = 0
         for i in 1:length-dim
-            for body in bodies[i]
+            for sprout in sprouts[i]
                 for seed in seeds[length-i+1]
-                    path = suture(seed.path, body.path, dim)
+                    path = suture(seed.path, sprout.path, dim)
                     if path.length != 1
                         buffer_idx += 1
                         buffer[buffer_idx] = path
@@ -453,69 +513,36 @@ end
 #Construct all the possible self avoiding paths (modulo orthogonal group) up to a length
 function unique_SAPs(depth::Int, dim::Int)
     seeds = search_seeds(depth, dim)
-    bodies = search_bodies(depth-dim, dim)
-    all_combinations = all_combinations_suture(seeds, bodies, depth, dim)
+    sprouts = search_sprouts(depth-dim, dim)
+    all_combinations = all_combinations_suture(seeds, sprouts, depth, dim)
     return all_combinations
-end
-
-function fast_flatten(nested::Vector{Vector{T}})::Vector{T} where T 
-    len = sum(length, nested)
-    flattened = Vector{T}(undef, len)
-    offset = 1
-    for vector in nested
-        flattened[offset:offset+length(vector)-1] = vector
-        offset += length(vector)
-    end
-    return flattened
-end
-
-function get_duplicate_free(paths::Vector{Path}, dim::Integer, matrices)::Vector{Path}
-    len = length(paths)
-    symm_buffer = Vector{Path}(undef, len)
-    asym_buffer = Vector{Path}(undef, len)
-    symm_count = 0
-    asym_count = 0
-    for path in paths
-        if path.asymmetry_flag & 1 == 1
-            asym_count += 1
-            asym_buffer[asym_count] = path
-        else           
-            is_unique = true
-            for i in 1:symm_count
-                is_unique &= !are_equivalent(symm_buffer[i], path, matrices)
-            end
-            if is_unique
-                symm_count += 1
-                symm_buffer[symm_count] = path
-            end
-        end
-    end
-    duplicate_free = Vector{Path}(undef, symm_count + asym_count)
-    duplicate_free[1:symm_count] = symm_buffer[1:symm_count]
-    duplicate_free[(symm_count+1):(symm_count+asym_count)] = asym_buffer[1:asym_count]
-    return duplicate_free
-end
-
-function topological_SAPs(depth::Integer, dim::Integer)::Vector{Vector{Path}}
-    topological_SAPs = Vector{Vector{Path}}(undef, depth)
-    topological_SAPs[1] = [ZeroPath(dim)]
-    matrices = O(dim)
-    base_vectors = compute_base_vectors(dim)
-    for i in 1:depth-1
-        buffer = [extend_SAP(path, dim, base_vectors) for path in topological_SAPs[i]]
-        topological_SAPs[i+1] = fast_flatten([get_duplicate_free(vector, dim, matrices) for vector in buffer])
-    end
-    return topological_SAPs
 end
 
 #SELF INTERACTION METHODS ----------------------------------------------------------------------
 
-#Calculates the upper triangle of the adjacency matrix of a path 
+#Evaluates norm one distance between vertices
+function one_distance(vertex1::Vertex, vertex2::Vertex, dim::Integer)::Integer
+    distance = 0
+    for i in 1:dim
+        distance += abs(vertex1.position[i] - vertex2.position[i])
+    end
+    return distance
+end
+
+#Constructs of the self adjacency triangle
 function path_self_adjacency_triangle(path::Path)::Vector{Vector{Bool}}
-    triangle = Vector([fill(false, i) for i in 1:path.length])
+    len = path.length
+    triangle = Vector{Vector{Bool}}(undef, len)
+    @inbounds for i in 1:len
+        triangle[i] = Vector{Bool}(undef, i)
+        @inbounds for j in 1:i
+            triangle[i][j] = false
+        end
+    end
+    dim = length(path.vertices[1].position)
     for i in 3:path.length
         for j in 1:i-2
-            if sum(abs.(path.vertices[i].position - path.vertices[j].position)) == 1
+            if one_distance(path.vertices[i], path.vertices[j], dim) == 1
                 triangle[i][j] = true
             end
         end
@@ -563,25 +590,6 @@ function lee_binary_interaction(a,b)
     end
 end
 
-#Specialized printing function for path visualization
-function print_path(path::Path)
-    print("<")
-    for vertex in path.vertices
-        print(vertex.position)
-    end
-    print(">\n")
-end
-
-#Specialized printing function for adjacency visualization
-function print_triangle(triangle::Vector{Vector{Bool}})
-    for i in 1:length(triangle)
-        for j in 1:i
-            triangle[i][j] ? print("X") : print("O")
-        end
-        print("\n")
-    end
-end
-
 #SEQUENCES METHODS ------------------------------------------------------------
 
 #Constructs all binary sequences of a specified lenght
@@ -610,11 +618,17 @@ end
 #Organizes paths by compactness
 function categorize_by_compactness(paths::Vector{Path})::Vector{Vector{Path}}
     self_adjacency_triangles = path_self_adjacency_triangle.(paths)
-    adjacency_count = count_adjacent.(self_adjacency_triangles)
-    categories = Vector{Vector{Path}}([[] for _ in 1:maximum(adjacency_count)+1])
-    for i in 1:Base.length(paths)
-        push!(categories[adjacency_count[i]+1], path_copy(paths[i]))
+    compactness = count_adjacent.(self_adjacency_triangles)
+    category_count = maximum(compactness)+1
+    path_count = length(paths)
+    buffer = Matrix{Path}(undef, (category_count, path_count))
+    buffer_count = zeros(Int, category_count)
+    for i in 1:path_count
+        idx = compactness[i]+1
+        buffer_count[idx] += 1
+        buffer[idx, buffer_count[idx]] = paths[i]
     end
+    categories = Vector{Vector{Path}}([buffer[i, 1:buffer_count[i]] for i in 1:category_count])
     return categories
 end 
 
@@ -643,6 +657,27 @@ end
 #Calculates the number of sequences corresponding to any multiplicity of configurations of maximal interaction
 function calculate_g(sequences::Vector{Vector{Int}}, paths::Vector{Path}, interaction_model)
     return calculate_g(sequences, path_self_adjacency_triangle.(paths), interaction_model)
+end
+
+#UTILS -----------------------------------------------------------------------------
+
+#Specialized printing function for path visualization
+function print_path(path::Path)
+    print("<")
+    for vertex in path.vertices
+        print(vertex.position)
+    end
+    print(">\n")
+end
+
+#Specialized printing function for adjacency visualization
+function print_triangle(triangle::Vector{Vector{Bool}})
+    for i in 1:length(triangle)
+        for j in 1:i
+            triangle[i][j] ? print("X") : print("O")
+        end
+        print("\n")
+    end
 end
 
 end

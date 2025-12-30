@@ -53,6 +53,7 @@ function print_histogram(len::Integer, dim::Integer)
     plot_compactness_categorized(categorized_SAPs)
 end
 
+
 print_compactness_table1(16, 2)
 print_histogram(16, 2)
 

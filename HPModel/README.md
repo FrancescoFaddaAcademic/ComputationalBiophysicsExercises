@@ -23,15 +23,6 @@ mutable struct Path{V<:AbstractVertex}<:AbstractPath
 end
 ```
 `Path` is synonimous to conformation in biological terms, a path contains an array `vertices` of vertices (that depending on their concrete type may contain different informations), their `length` (for efficient data transfer) and an `asymmetry_flag` that contains useful information on the degree of asymmetry of a certain path.  
-#### State
-```julia
-mutable struct State
-    path::Path
-    occupation::Array{Bool}
-end
-```
-A `State` is nothing but the combination of a `Path` and an occupation matrix (`occupation`) this data structure was introduced to implement self avoidance in an efficient manner, however, memory allocation overhead, at least for short sequences turns out to be much more relevant than the cost of the slightly longer naive version. To avoid overloading the memory with potentially useless information we have decided to keep `State` and `Path` as separate structures that are used according to necessities.
-
 ### Core functions
 
 #### Extention of a Self Avoiding Path
@@ -53,7 +44,7 @@ function extend_SAP(path::Path, dim::Int, base_vectors::Vector{Vector{Int}})::Ve
     return buffer[1:extensions_count]
 end
 ```
-This function extends a path avoiding self intersection, in the source file you can find a function with the same name that extends `States` using the informtion contained in the occupation matrix
+This function extends a path avoiding self intersection, in the source file you can find a function with the same name that extends `States` using the informtion contained in the occupation matrix, this naive approach simply compares the new vertex position to all the others and rejects the extension if there is a collision.
 
 #### Equivalence of Paths
 ```julia
@@ -71,90 +62,6 @@ end
 ```
 This function checks if two paths can be superimposed by virtue of one of transformations provided in the argument as matrices, in our case these are nothing but the orthogonal matrices on $\mathbb Z_N$.
 
-
-
-#### Seed search
-```julia
-function search_seeds(length::Int, dim::Int)::Vector{Vector{State}}          
-    seeds = Vector{Vector{State}}(undef, length)
-
-    #1 
-    if dim > 2
-        max_size = Base.length(unique_SAPs(length,dim-1))*2
-    else
-        max_size = 1*2
-    end
-    #
-    
-    matrices = O(dim)
-    seeds_buffer = Vector{State}(undef, max_size)
-    states = Vector{State}(undef, max_size)
- 
-    next_states = Vector{State}(undef, max_size)
-    next_states_candidates = Vector{State}(undef, max_size)
-
-    states[1] = ZeroState(dim)
-    states_count = 1
-
-    seeds_count = 0
-    next_states_count = 0
-
-    #2
-    for i in 1:length-1
-        seeds[i] = seeds_buffer[1:seeds_count]
-        next_states_count = 0
-        next_states_candidates_count = 0
-        seeds_count = 0
-
-        #2.1
-        for j in 1:states_count
-            parent = states[j]
-            children = extend_SAP(parent, dim)
-            is_first_completely_asymmetric = true
-            is_first_symmetry_break = true
-
-            #2.1.1
-            for child in children
-                ica = is_completely_asymmetric(child.path, dim)
-                symmetry_break = child.path.asymmetry_flag != parent.path.asymmetry_flag
-                if ica && is_first_completely_asymmetric
-                    seeds_count += 1
-                    seeds_buffer[seeds_count] = state_copy(child)
-                    is_first_completely_asymmetric = false
-                elseif symmetry_break && is_first_symmetry_break && !ica
-                    next_states_count += 1
-                    next_states[next_states_count] = state_copy(child)
-                    is_first_symmetry_break = false
-                elseif !((symmetry_break && !is_first_symmetry_break) || (ica && !is_first_completely_asymmetric))
-                    next_states_candidates_count += 1
-                    next_states_candidates[next_states_candidates_count] = state_copy(child)                    
-                end
-            end
-        end
-
-        if next_states_candidates_count != 0
-            new_next_states = filter_equivalent(next_states_candidates[1:next_states_candidates_count], dim, matrices)
-            new_next_states_count = Base.length(new_next_states)
-            next_states[next_states_count+1:next_states_count + new_next_states_count] = new_next_states
-            next_states_count += new_next_states_count
-        end
-        #    
-
-        for j in 1:next_states_count
-            states[j] = next_states[j]
-        end
-        states_count = next_states_count
-    end
-    #
-
-    seeds_buffer[seeds_count+1:seeds_count+next_states_count] = next_states[1:next_states_count]
-    seeds_count += next_states_count
-    seeds[length] = seeds_buffer[1:seeds_count]
-    return seeds
-end
-```
-This function is the main implementation of the Seed-Sprout approach, it searches for seeds so that in the later stages they can be attached to sprouts. The details of the implementation are...
-
 #### Search of Topological Paths
 
 ```julia
@@ -170,7 +77,9 @@ function topological_SAPs(depth::Integer, dim::Integer)::Vector{Vector{Path}}
     return topological_SAPs
 end
 ```
-#### Quotientation by any Linear Group
+This is the main outer implementation of the topological paths search. It constructs iteratively the set of self avoiding paths of length lesser or equal to `depth`. It starts from the previous order, produces all the extensions and filters duplicates, then stores the elements.
+
+#### Quotientation by any Group (representation)
 
 ```julia
 function get_duplicate_free(paths::Vector{Path}, dim::Integer, matrices)::Vector{Path}
@@ -200,6 +109,7 @@ function get_duplicate_free(paths::Vector{Path}, dim::Integer, matrices)::Vector
     return duplicate_free
 end
 ```
+This functions filters a set of paths in such a way that only one representative of any equivalence class is preserved, the first bit `asymmetry_flag` is 1 if the parent of the path was completely antisymmetric (this is done in the `extend_path` function), if this is the case then we already know that all the path is unique, consequently there is no need to compare it with the other
 
 #### Self Adjacency Triangle
 ```julia
@@ -303,5 +213,16 @@ function calculate_g(sequences::Vector{Vector{Int}}, self_adjacency_triangles::V
     return g
 end
 ```
+### Additional implementations
+Here I leave some other implementations that were not practically used in the tests but have been discussed in the theoretical
+#### State
+```julia
+mutable struct State
+    path::Path
+    occupation::Array{Bool}
+end
+```
+A `State` is nothing but the combination of a `Path` and an occupation matrix (`occupation`) this data structure was introduced to implement self avoidance in an efficient manner, however, memory allocation overhead, at least for short sequences turns out to be much more relevant than the cost of the slightly longer naive version. To avoid overloading the memory with potentially useless information we have decided to keep `State` and `Path` as separate structures that are used according to necessities.
+
 ### Additional Notes
 Considering the scope, efficiency was prioretized over safety, many functions may throw unhandled errors.
