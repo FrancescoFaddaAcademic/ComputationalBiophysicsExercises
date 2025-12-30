@@ -403,19 +403,34 @@ function extract_hairpins!(strand::SingleStrand, hairPins::Vector{HairPin})
 end
 
 function loop_thermodynamic_contribution(hairPin::HairPin, hairpin_data::DataFrame, internal_loop_data::DataFrame, bulge_data::DataFrame)::Vector{Float64}
-    is_long = hairPin.loop_length > 9
     if hairPin.type == 'H'
+        is_long = hairPin.loop_length > 9
         data = hairpin_data
         if hairPin.loop_length < 3
-            error("Hairpin of length < 3 detected, the structure is too unstable")
+            error("Hairpin of length < 3 are not supported")
+        elseif is_long
+            return [data[9,"Enthalpy"], data[9,"Entropy"]+1.75*R*log(hairPin.loop_length/9)]
+        else
+            return [data[hairPin.loop_length,"Enthalpy"], data[hairPin.loop_length,"Entropy"]]
         end
     elseif hairPin.type == 'I'
+        is_long = hairPin.loop_length > 6
         data = internal_loop_data
         if hairPin.loop_length < 4
-            error("Internal loop of length < 4 detected, the structure is too unstable")
+            error("Internal loop of length < 4 are not supported")
+        elseif is_long
+            return [data[6,"Enthalpy"], data[9,"Entropy"]+1.08*R*log(hairPin.loop_length/6)]
+        else
+            return [data[hairPin.loop_length,"Enthalpy"], data[hairPin.loop_length,"Entropy"]]
         end
     elseif hairPin.type == 'B'
+        is_long = hairPin.loop_length > 9
         data = bulge_data
+        if is_long
+            return [data[6,"Enthalpy"], data[9,"Entropy"]+1.75*R*log(hairPin.loop_length/6)]
+        else
+            return [data[hairPin.loop_length,"Enthalpy"], data[hairPin.loop_length,"Entropy"]]
+        end
     else
         error("Unrecognized loop structure")
     end
