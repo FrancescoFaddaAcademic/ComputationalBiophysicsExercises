@@ -12,9 +12,9 @@ strand = SingleStrand(sequence, structure)
 
 C = 1
 
-hairPins = Vector{HairPin}([])
+Pins = Vector{Pin}([])
 
-extract_hairpins!(strand, hairPins)
+extract_pins!(strand, Pins)
 
 Δ = [0.0, 0.0]
 
@@ -23,7 +23,7 @@ internal_loop_data = CSV.read("data/Internal-Loops-Turner-Parameters.csv", DataF
 bulge_data = CSV.read("data/Bulges-Turner-Parameters.csv", DataFrame)
 inner_data = CSV.read("data/Watson-Crick-NN-Parameters.csv", DataFrame)
 
-for hairPin in hairPins
+for Pin in Pins
     global Δ += loop_thermodynamic_contribution(hairPin, hairpin_data, internal_loop_data, bulge_data)
     global Δ += sequence_potentials(hairPin.paired_sequence, inner_data)
 end

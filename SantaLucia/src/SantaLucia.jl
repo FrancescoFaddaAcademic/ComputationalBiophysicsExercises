@@ -21,9 +21,9 @@ melting_curve,
 create_NN_template,
 are_complementary,
 loop_thermodynamic_contribution,
-HairPin,
+Pin,
 SingleStrand,
-extract_hairpins!,
+extract_pins!,
 sequence_potentials
 
 const word_size = Sys.WORD_SIZE
@@ -48,7 +48,7 @@ mutable struct Structure
     binary::Segment
 end
 
-mutable struct HairPin
+mutable struct Pin
     loop_length::UInt
     paired_sequence::Sequence
     type::Char
@@ -322,9 +322,9 @@ function extend(sequence::Sequence, key::UInt)::Sequence
 end
 
 
-function extend!(hairPin::HairPin, pair::UInt)::HairPin
-    hairPin.paired_sequence.binary = extend(hairPin.paired_sequence.binary, pair)
-    return hairPin
+function extend!(pin::Pin, pair::UInt)::Pin
+    pin.paired_sequence.binary = extend(pin.paired_sequence.binary, pair)
+    return pin
 end
 
 #INTERACTING SINGLE STRANDS -----------------------------------------------------------------------
@@ -348,7 +348,7 @@ function SingleStrand(sequence_lit::String, dotparen_lit::String)
 end
 
 function Ring(length, pair::UInt, type::Char)
-    HairPin(length, Sequence(pair, 4), type)
+    Pin(length, Sequence(pair, 4), type)
 end
 
 function integrate(structure::Structure)
@@ -361,7 +361,7 @@ function integrate(structure::Structure)
 end 
 
 
-function extract_hairpins!(strand::SingleStrand, hairPins::Vector{HairPin})
+function extract_pins!(strand::SingleStrand, pins::Vector{Pin})
     integral = integrate(strand.structure)
     if integral[end] != 0
         error("Invalid structure")
@@ -384,7 +384,7 @@ function extract_hairpins!(strand::SingleStrand, hairPins::Vector{HairPin})
             if unpack(strand.structure.binary, ones_idxs[i]-1) == 2 || unpack(strand.structure.binary, ones_idxs[i+1]) == 0
                 has_marginal = true
             end
-            extract_hairpins!(substrand(strand, collect(ones_idxs[i]:ones_idxs[i+1]-1)), hairPins)
+            extract_pins!(substrand(strand, collect(ones_idxs[i]:ones_idxs[i+1]-1)), pins)
             children_number += 1
         end
         i += 1
@@ -392,52 +392,52 @@ function extract_hairpins!(strand::SingleStrand, hairPins::Vector{HairPin})
     only_child = children_number == 1
 
     if loop_length == 0 && only_child 
-        extend!(hairPins[end], outer_pair)
+        extend!(pins[end], outer_pair)
     elseif has_marginal && only_child
-        push!(hairPins, Ring(loop_length, outer_pair, 'B'))
+        push!(pins, Ring(loop_length, outer_pair, 'B'))
     elseif children_number == 0 
-        push!(hairPins, Ring(loop_length, outer_pair, 'H'))
+        push!(pins, Ring(loop_length, outer_pair, 'H'))
     else
-        push!(hairPins, Ring(loop_length, outer_pair, 'I'))
+        push!(pins, Ring(loop_length, outer_pair, 'I'))
     end
 end
 
-function loop_thermodynamic_contribution(hairPin::HairPin, hairpin_data::DataFrame, internal_loop_data::DataFrame, bulge_data::DataFrame)::Vector{Float64}
-    if hairPin.type == 'H'
-        is_long = hairPin.loop_length > 9
+function loop_thermodynamic_contribution(pin::Pin, hairpin_data::DataFrame, internal_loop_data::DataFrame, bulge_data::DataFrame)::Vector{Float64}
+    if pin.type == 'H'
+        is_long = pin.loop_length > 9
         data = hairpin_data
-        if hairPin.loop_length < 3
+        if pin.loop_length < 3
             error("Hairpin of length < 3 are not supported")
         elseif is_long
-            return [data[9,"Enthalpy"], data[9,"Entropy"]+1.75*R*log(hairPin.loop_length/9)]
+            return [data[9,"Enthalpy"], data[9,"Entropy"]+1.75*R*log(pin.loop_length/9)]
         else
-            return [data[hairPin.loop_length,"Enthalpy"], data[hairPin.loop_length,"Entropy"]]
+            return [data[pin.loop_length,"Enthalpy"], data[pin.loop_length,"Entropy"]]
         end
-    elseif hairPin.type == 'I'
-        is_long = hairPin.loop_length > 6
+    elseif pin.type == 'I'
+        is_long = pin.loop_length > 6
         data = internal_loop_data
-        if hairPin.loop_length < 4
+        if pin.loop_length < 4
             error("Internal loop of length < 4 are not supported")
         elseif is_long
-            return [data[6,"Enthalpy"], data[9,"Entropy"]+1.08*R*log(hairPin.loop_length/6)]
+            return [data[6,"Enthalpy"], data[9,"Entropy"]+1.08*R*log(pin.loop_length/6)]
         else
-            return [data[hairPin.loop_length,"Enthalpy"], data[hairPin.loop_length,"Entropy"]]
+            return [data[pin.loop_length,"Enthalpy"], data[pin.loop_length,"Entropy"]]
         end
-    elseif hairPin.type == 'B'
-        is_long = hairPin.loop_length > 9
+    elseif pin.type == 'B'
+        is_long = pin.loop_length > 9
         data = bulge_data
         if is_long
-            return [data[6,"Enthalpy"], data[9,"Entropy"]+1.75*R*log(hairPin.loop_length/6)]
+            return [data[6,"Enthalpy"], data[9,"Entropy"]+1.75*R*log(pin.loop_length/6)]
         else
-            return [data[hairPin.loop_length,"Enthalpy"], data[hairPin.loop_length,"Entropy"]]
+            return [data[pin.loop_length,"Enthalpy"], data[pin.loop_length,"Entropy"]]
         end
     else
         error("Unrecognized loop structure")
     end
     if is_long
-        return [data[9,"Enthalpy"], data[9,"Entropy"]+1.75*R*log(hairPin.loop_length/9)]
+        return [data[9,"Enthalpy"], data[9,"Entropy"]+1.75*R*log(pin.loop_length/9)]
     else
-        return [data[hairPin.loop_length,"Enthalpy"], data[hairPin.loop_length,"Entropy"]]
+        return [data[pin.loop_length,"Enthalpy"], data[pin.loop_length,"Entropy"]]
     end
 end
 
