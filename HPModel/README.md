@@ -44,23 +44,49 @@ function extend_SAP(path::Path, dim::Int, base_vectors::Vector{Vector{Int}})::Ve
     return buffer[1:extensions_count]
 end
 ```
-This function extends a path avoiding self intersection, in the source file you can find a function with the same name that extends `States` using the informtion contained in the occupation matrix, this naive approach simply compares the new vertex position to all the others and rejects the extension if there is a collision.
+This function extends a path avoiding self intersection, in particular it tries to add to the input path all possible extensions by attaching a vertex, accepts or reject the configuration by checking a collision. In the source file you can find a function with the same name that extends `States` using the informtion contained in the occupation matrix.
 
 #### Equivalence of Paths
 ```julia
 function are_equivalent(path1::Path, path2::Path, matrices)::Bool
     if path1.length == path2.length
         for matrix in matrices
-            if are_equal(path1, linear_transform(path2, matrix))
+            linear_transform!(path2, matrix)
+            if are_equal(path1, path2)
+                linear_transform!(path2, inv(matrix))
                 return true
             end
+            linear_transform!(path2, inv(matrix))
         end
-        return false
     end
     return false
 end
 ```
-This function checks if two paths can be superimposed by virtue of one of transformations provided in the argument as matrices, in our case these are nothing but the orthogonal matrices on $\mathbb Z_N$.
+This function checks if two paths can be superimposed by virtue of one of transformations provided in the argument as matrices, in our case these are nothing but the orthogonal matrices on $\mathbb Z_N$. In particular the method takes two paths, and after checking that their length is equal, transforms the second, compares it to the first one and, importantly, transforms it back. We must note that the `linear_transform!` function modifies the content of the path without creating a copy (this was done to avoid unnecessary slow memory alloactions), this implies that one needs to put everything back to where it was in order to avoid strange behaviour in mutable structs that may reference the same memory.
+
+#### Quotientation by any Group (representation)
+
+```julia
+function get_duplicate_free(paths::Vector{Path}, dim::Integer, matrices)::Vector{Path}
+    len = length(paths)
+    buffer = Vector{Path}(undef, len)
+    buffer_count = 0
+    for path in paths      
+        is_unique = true
+        for i in 1:buffer_count
+            is_unique &= !are_equivalent(buffer[i], path, matrices)
+        end
+        if is_unique
+            buffer_count += 1
+            buffer[buffer_count] = path
+        end
+    end
+    duplicate_free = Vector{Path}(undef, buffer_count)
+    duplicate_free[1:buffer_count] = buffer[1:buffer_count]
+    return duplicate_free
+end
+```
+This functions filters a set of paths in such a way that only one representative of any equivalence class is preserved, it uses the `are_equivalent` function to check if the current path is topologically equivalent to another, already saved instance.
 
 #### Search of Topological Paths
 
@@ -71,53 +97,44 @@ function topological_SAPs(depth::Integer, dim::Integer)::Vector{Vector{Path}}
     matrices = O(dim)
     base_vectors = compute_base_vectors(dim)
     for i in 1:depth-1
-        buffer = [extend_SAP(path, dim, base_vectors) for path in topological_SAPs[i]]
-        topological_SAPs[i+1] = fast_flatten([get_duplicate_free(vector, dim, matrices) for vector in buffer])
+        buffer = Vector{Path}(undef, (2dim)*length(topological_SAPs[i]))
+        buffer_count = 0
+        for path in topological_SAPs[i]
+            extended_SAPs = extend_SAP(path, dim, base_vectors)
+            if (path.asymmetry_flag ⊻ asymm_key(dim)) >> 1 == 0
+                len = length(extended_SAPs)
+                buffer[buffer_count+1:buffer_count + len] = extended_SAPs
+            else 
+                duplicate_free = get_duplicate_free(extended_SAPs, dim, matrices)
+                len = length(duplicate_free)
+                buffer[buffer_count+1:buffer_count + len] = duplicate_free
+            end
+            buffer_count += len
+        end
+        topological_SAPs[i+1] = buffer[1:buffer_count]
     end
     return topological_SAPs
 end
 ```
-This is the main outer implementation of the topological paths search. It constructs iteratively the set of self avoiding paths of length lesser or equal to `depth`. It starts from the previous order, produces all the extensions and filters duplicates, then stores the elements.
+This is the main outer implementation of the topological paths search. It constructs iteratively the set of self avoiding paths of length lesser or equal to `depth`. It starts from the previous order, produces all the extensions, checks the asymmetry of the parent path, and, in case this is not maximal, filters duplicates using the previous function, then, finally stores the elements.
 
-#### Quotientation by any Group (representation)
 
-```julia
-function get_duplicate_free(paths::Vector{Path}, dim::Integer, matrices)::Vector{Path}
-    len = length(paths)
-    symm_buffer = Vector{Path}(undef, len)
-    asym_buffer = Vector{Path}(undef, len)
-    symm_count = 0
-    asym_count = 0
-    for path in paths
-        if path.asymmetry_flag & 1 == 1
-            asym_count += 1
-            asym_buffer[asym_count] = path
-        else           
-            is_unique = true
-            for i in 1:symm_count
-                is_unique &= !are_equivalent(symm_buffer[i], path, matrices)
-            end
-            if is_unique
-                symm_count += 1
-                symm_buffer[symm_count] = path
-            end
-        end
-    end
-    duplicate_free = Vector{Path}(undef, symm_count + asym_count)
-    duplicate_free[1:symm_count] = symm_buffer[1:symm_count]
-    duplicate_free[(symm_count+1):(symm_count+asym_count)] = asym_buffer[1:asym_count]
-    return duplicate_free
-end
-```
-This functions filters a set of paths in such a way that only one representative of any equivalence class is preserved, the first bit `asymmetry_flag` is 1 if the parent of the path was completely antisymmetric (this is done in the `extend_path` function), if this is the case then we already know that all the path is unique, consequently there is no need to compare it with the other
 
 #### Self Adjacency Triangle
 ```julia
 function path_self_adjacency_triangle(path::Path)::Vector{Vector{Bool}}
-    triangle = Vector([fill(false, i) for i in 1:path.length])
+    len = path.length
+    triangle = Vector{Vector{Bool}}(undef, len)
+    @inbounds for i in 1:len
+        triangle[i] = Vector{Bool}(undef, i)
+        @inbounds for j in 1:i
+            triangle[i][j] = false
+        end
+    end
+    dim = length(path.vertices[1].position)
     for i in 3:path.length
         for j in 1:i-2
-            if sum(abs.(path.vertices[i].position - path.vertices[j].position)) == 1
+            if one_distance(path.vertices[i], path.vertices[j], dim) == 1
                 triangle[i][j] = true
             end
         end
@@ -125,6 +142,8 @@ function path_self_adjacency_triangle(path::Path)::Vector{Vector{Bool}}
     return triangle
 end
 ```
+This funciton computes the self adjacency triangle of a given path, the structure has been chosen as a triangle instead of a matrix to reduce memory usage, however, for better performances (locality of data) it would be advisable to use a traditional matrix.
+
 #### Calculation of the self interaction (Any Model)
 ```julia
 function calculate_self_interaction(sequence::Vector{Int}, triangle::Vector{Vector{Bool}}, interaction_model)
@@ -137,7 +156,9 @@ function calculate_self_interaction(sequence::Vector{Int}, triangle::Vector{Vect
     return interaction
 end
 ```
-#### Relevant Self Interations
+This function uses the previously calculated adjacency triangle, together with an arbitrary interaction model and calculates the cumulative self interaction of the entire path
+
+#### Relevant Self Interactions
 ```julia
 function multiplicative_binary_interaction_model(a,b)
     return a*b
@@ -153,6 +174,8 @@ function lee_binary_interaction(a,b)
     end
 end
 ```
+For example these are the two interactions that I've included in the code, they both are meant to work on binary sequences, however, any generalizaztion to a non-binary model should work correctly. 
+
 #### Construction of all possible Binary sequence of a given length
 ```julia
 function all_binary_sequences(len::Int)::Vector{Vector{Int}}
@@ -164,7 +187,9 @@ function all_binary_sequences(len::Int)::Vector{Vector{Int}}
     end
     return sequences
 end
-```
+````
+This algorithm calculates all the possible binary sequences using some very efficient bitwise operations. In particular one can think of any number as a binary sequence, by iterating between 1 and 2^len one can easily produce all possible binary sequence, then it is just a matter of selecting the correct bit (by shifting it on the rightside position and masking it with 1) and inserting the value in the corresponding element of each sequence.   
+
 #### Construction of a random set of binary sequences
 ```julia
 function random_binary_sequences(len::Int, number::Int)::Vector{Vector{Int}}
@@ -178,18 +203,28 @@ function random_binary_sequences(len::Int, number::Int)::Vector{Vector{Int}}
     return sequences
 end
 ```
+This implementation is completely analogous to the previous at the tecnical level, however, instead of iterating on all possible sequences it iterates on a random set. 
+
 #### Categorization by compactness
 ```julia
 function categorize_by_compactness(paths::Vector{Path})::Vector{Vector{Path}}
     self_adjacency_triangles = path_self_adjacency_triangle.(paths)
-    adjacency_count = count_adjacent.(self_adjacency_triangles)
-    categories = Vector{Vector{Path}}([[] for _ in 1:maximum(adjacency_count)+1])
-    for i in 1:Base.length(paths)
-        push!(categories[adjacency_count[i]+1], path_copy(paths[i]))
+    compactness = count_adjacent.(self_adjacency_triangles)
+    category_count = maximum(compactness)+1
+    path_count = length(paths)
+    buffer = Matrix{Path}(undef, (category_count, path_count))
+    buffer_count = zeros(Int, category_count)
+    for i in 1:path_count
+        idx = compactness[i]+1
+        buffer_count[idx] += 1
+        buffer[idx, buffer_count[idx]] = paths[i]
     end
+    categories = Vector{Vector{Path}}([buffer[i, 1:buffer_count[i]] for i in 1:category_count])
     return categories
 end 
 ```
+This function splits a vector of paths into different compactness "categories", where the compactness of a path is simply calculated as the sum of all elements of the adjacency triangle described above 
+
 #### Calculation of g(t)
 ```julia
 function calculate_g(sequences::Vector{Vector{Int}}, self_adjacency_triangles::Vector{Vector{Vector{Bool}}}, interaction_model)::Vector{Int}
@@ -213,8 +248,11 @@ function calculate_g(sequences::Vector{Vector{Int}}, self_adjacency_triangles::V
     return g
 end
 ```
+This function returns the multiplicity frequency of the fundamental state with respect to a set of sequences and one of paths.
+
 ### Additional implementations
-Here I leave some other implementations that were not practically used in the tests but have been discussed in the theoretical
+Here I leave some other implementations that were not practically used in the tests but have been discussed in the theoretical document. In particular both an occupation matrix approach to the extension of self avoiding paths, and, more interestingly, an unoptimized Seed-Sprout approach for the seach of all topological self avoiding paths are presented. More work is needed to assess the efficacy of both methods.
+
 #### State
 ```julia
 mutable struct State
@@ -224,5 +262,111 @@ end
 ```
 A `State` is nothing but the combination of a `Path` and an occupation matrix (`occupation`) this data structure was introduced to implement self avoidance in an efficient manner, however, memory allocation overhead, at least for short sequences turns out to be much more relevant than the cost of the slightly longer naive version. To avoid overloading the memory with potentially useless information we have decided to keep `State` and `Path` as separate structures that are used according to necessities.
 
+#### Seeds search
+```julia
+function search_seeds(length::Int, dim::Int)::Vector{Vector{State}}          
+    seeds = Vector{Vector{State}}(undef, length) 
+    if dim > 2
+        max_size = Base.length(unique_SAPs(length,dim-1))*2
+    else
+        max_size = 1*2
+    end
+    matrices = O(dim)
+    seeds_buffer = Vector{State}(undef, max_size)
+    states = Vector{State}(undef, max_size)
+ 
+    next_states = Vector{State}(undef, max_size)
+    next_states_candidates = Vector{State}(undef, max_size)
+
+    states[1] = ZeroState(dim)
+    states_count = 1
+
+    seeds_count = 0
+    next_states_count = 0
+    for i in 1:length-1
+        seeds[i] = seeds_buffer[1:seeds_count]
+        next_states_count = 0
+        next_states_candidates_count = 0
+        seeds_count = 0
+        for j in 1:states_count
+            parent = states[j]
+            children = extend_SAP(parent, dim)
+            is_first_completely_asymmetric = true
+            is_first_symmetry_break = true
+            for child in children
+                ica = is_completely_asymmetric(child.path, dim)
+                symmetry_break = child.path.asymmetry_flag != parent.path.asymmetry_flag
+                if ica && is_first_completely_asymmetric
+                    seeds_count += 1
+                    seeds_buffer[seeds_count] = state_copy(child)
+                    is_first_completely_asymmetric = false
+                elseif symmetry_break && is_first_symmetry_break && !ica
+                    next_states_count += 1
+                    next_states[next_states_count] = state_copy(child)
+                    is_first_symmetry_break = false
+                elseif !((symmetry_break && !is_first_symmetry_break) || (ica && !is_first_completely_asymmetric))
+                    next_states_candidates_count += 1
+                    next_states_candidates[next_states_candidates_count] = state_copy(child)                    
+                end
+            end
+        end
+
+        if next_states_candidates_count != 0
+            new_next_states = filter_equivalent(next_states_candidates[1:next_states_candidates_count], dim, matrices)
+            new_next_states_count = Base.length(new_next_states)
+            next_states[next_states_count+1:next_states_count + new_next_states_count] = new_next_states
+            next_states_count += new_next_states_count
+        end
+
+        for j in 1:next_states_count
+            states[j] = next_states[j]
+        end
+        states_count = next_states_count
+    end
+    seeds_buffer[seeds_count+1:seeds_count+next_states_count] = next_states[1:next_states_count]
+    seeds_count += next_states_count
+    seeds[length] = seeds_buffer[1:seeds_count]
+    return seeds
+end
+
+function search_sprouts(length::Int, dim::Int)::Vector{Vector{State}}
+    if length > 0
+        sprouts_buffer = [Vector{State}(undef, (2*dim)^(i-1)) for i in 1:length]
+        sprouts = Vector{Vector{State}}(undef, length)
+        sprouts[1] = [State(ZeroPath(dim))]
+        for i in 2:length
+            count = 0
+            for sprout in sprouts[i-1]
+                children = extend_SAP(sprout, dim)
+                for child in children
+                    sprouts_buffer[i][count+1] = child
+                    count += 1
+                end
+            end
+            sprouts[i] = sprouts_buffer[i][1:count]
+        end
+        return sprouts
+    else
+        return Vector{Vector{State}}([[ZeroState(dim)]])
+    end
+end
+
+function suture(seed::Path, sprout::Path, dim::Int)
+    neck = seed.vertices[seed.length].position
+    translated_sprout = path_translate(sprout, neck)
+    for seed_vertex in seed.vertices
+        for i in 1:Base.length(translated_sprout.vertices)
+            if seed_vertex.position == translated_sprout.vertices[i].position && i!=1
+                return ZeroPath(dim)
+            end
+        end
+    end
+    return path_combine(seed, translated_sprout)
+end
+```
+This is a crude implementation of the seed and sprout searches and of the suture method that is used to connect the two, avoiding self intersection. The peroformance is really promising, however more work would be needed to have a reliable and fast algorithm, so for the moment this is not used in the test scripts. This said it should still work properly, so, if one wants to test it, the funciton `unique_SAPs` contains an implementation of this method that should easily substitute `topological_SAPs`.
+
 ### Additional Notes
 Considering the scope, efficiency was prioretized over safety, many functions may throw unhandled errors.
+
+At the end I probably just managed to make my inefficient code also unsafe.
