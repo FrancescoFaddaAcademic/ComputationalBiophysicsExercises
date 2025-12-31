@@ -4,8 +4,7 @@ This repository contains the required assignments, each assignment has the struc
 Each assigment contains:
 - a `src/` directory containing most of the implementation required for the completion of the assignment.
 - a `test/` directory containing scripts that should reproduce the required behaviour for each assigments.
-- a `docs/` directory containing a brief pdf discussing the theoretical and architectural decisions. 
-- a `README.md` file that should provide most of the techical description of the practical implementations.
+- a `README.md` file that should provide the documentation of the code.
 - `Project.toml` and `Manifest.toml`, two files that store useful information for dependencies and version control.
 
 ## How to run the code 
@@ -30,6 +29,9 @@ Then go back to the standard REPL mode (Ctrl + C).
 You are now ready to run any script in the directory!
 ### Run the Packages
 To run a julia file run `include("[relativepath]")` (For example to run the test reproducing the results from the Chan-Dill1989 paper you can run from HPModel `include("test/Chan_Dill_1989.jl")`)
+
+## Why Julia?
+I really enjoy a very bare metal approach to programming, I understand however that for most applications a code written in C may create many more problems than those it manages to solve. With this out of the way, I still really dislike the very high level of Python, in particular its non statically typed and non compiled nature, together with the forced indentation. I find it very difficult to read and mantain, moreover, the speed for general non vectorizable operation is often underwhelming. I've found that for me, Julia strikes a good balance between being easy to write and memeory safe, while still achieving impressive performances (if handled correclty) because of its JIT compilation. Moreover I find particularly useful that Julia lets you decide how low level you want to go. For rapid prototyping and scientific implementations it is great! This said the support and some of the features that come naturally with a higher level language are still a little annoying sometimes as what happens under the hood may not be very clear.
 
 ## Some additional (and personal) notes
 The provided scripts aren't by any means perfect, in fact some of the functions defined in the main package files are not even accessed. The reason behind this is that I've tried to explore different approaches to solving the proposed problems together with some of the inner mechanisms of this language (with varying success) and now I am quite honestly running out of time. The result, while properly working, is a little incoherent, I thought however to keep everything as I would like to discuss some of the ideas that didn't make it into the final implementation due to technical and temporal problems.
