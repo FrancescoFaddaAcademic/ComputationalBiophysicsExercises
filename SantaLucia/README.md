@@ -1,9 +1,18 @@
-# SantaLucia.jl
+# SantaLucia
+## Brief theoretical introduction and architecture of the code
+The SantaLucia model is the most widely used Nearest Neighbor model for dna, it is used to calculate the thermodynamic potentials associated with the formation of the secondary structure of some nucleic acid. The main idea consists in the assumption that the most relevant interaction is present at the level of adjacent pairs, each giving an intependent contribution to the thermodynamic potentials of the whole system by this assumption of separability one manages to achieve low computational cost while still preserving most of the relevant thermodynamic information. In general a complete NN model can be quite complex, taking into account many of the possible structure motifs that may arise from interaction. The main two kinds of contributions that such an NN model calculates are the following
+- The adjacent nucleotide-pair interaction (in a section that is paired), together with some corrections
+- The contribution of unpaired sections giving rise to more complex geometries (such as Bulges, Hairpins, Internal-Loops etc.)  
+
+In the present assignment I've decided to model only a subclass of these motifs, in particular every paired section is assumed to be complete (the code will throw an error if you try to match two non complementary strands), and while Bulges Hairpins and Interal-Loops are supported for the latter two there is a minimum size needed for the code to work, in particular a hairpin should have a size of at least three bases while the internal loop of at least 4. I've avoided these particular cases to keep the code and (mostly) data realitively simple, as, due to the close configuration there is no easy rule for these cases, and a lot of unique data is needed for a correct modeling. In short the implemented extensions are then the following  
 
 ### Implemented extensions 
 - Variable Strand Concentration
 - Melting curve plot
 - Internal loops, bulges and Hairpins (Internal loops and Hairpins must however be longer than 4 and 3 respectively due to the complexity of the data for the shortest case)
+
+### The Mathematics of RNA Secondary structure
+RNA secondary structure can be quite complex, to understand it, and to correctly compute its thermodynamics, i've found that it is useful to look at any RNA secondary structure as a sort of composable graph. To discuss this, let's start by looking at the dotparen notation. The dotparen notation used to concisely describe the secondary structure of a piece of RNA, each basis is associated to one of the following symbols: '(', '.' or ')'. Opposing parenthesis represent paired nucleotides in the structure, while dots unpaired ones. While this is sufficient to completely describe the secondary structure (at least at the degrees of freedom with higher energy), however.  
 
 ## Documentation
 
@@ -311,5 +320,6 @@ end
 ```
 Finally this function extracts the correct values for the enthalpy and entropy associated to the loop type and lenght from the corresponding databases or calculates them for longer loop lenght.
 ## Additional notes
+
 
 
