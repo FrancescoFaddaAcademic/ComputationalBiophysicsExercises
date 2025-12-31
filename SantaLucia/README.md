@@ -69,7 +69,7 @@ To interface beteen the human readable data and the machine efficient data some 
 - C -> 10,
 - T -> 11
 
-By doing this one can check if two bases are complementary by simply performing a XOR and then checking if they are 0, as I was saying this kinds of operations can be performed on each word simultaneously.
+By doing this one can check if two bases are complementary by simply performing a XNOR and then checking if they are 0, as I was saying this kinds of operations can be performed on each word simultaneously.
 In the code there are other 
 
 ### Core structures
@@ -82,7 +82,7 @@ const keys = SVector{4,UInt}([0, 1, 2, 3])
 const masks = SVector{32,UInt}([2^(2*i)+2^(2*i + 1) for i in 0:(word_size/2)-1])
 const R = 1.987
 ```
-These are some useful constants that are used all over the code
+These are some useful constants that are used all over the code, mostly to do the bit manipulation.
 
 #### Sequence
 ```julia
@@ -90,6 +90,9 @@ mutable struct Sequence
     binary::Segment
 end
 ```
+At the moment a sequence coincides with its binary sequence, I've decided to create this encapsulation to be able to add some additional information if needed. 
+NOTE: Due to the lack of a support for mismatches every "perfect" double sequence will be treated just as a single sequence as including the second sequence would have been redundant. 
+
 #### Single Strand
 ```julia
 mutable struct SingleStrand
@@ -98,6 +101,7 @@ mutable struct SingleStrand
     length::UInt
 end
 ```
+A single strand contains both its sequence, its structure (that is analogous to the sequence structure) and its length
 
 #### Pin
 ```julia
@@ -107,14 +111,35 @@ mutable struct Pin
     type::Char
 end
 ```
+In this instance, where the interaction is dependent only on the size and on the type of loop, a Pin is well described by the length and type of its loop, and by the paired sequence (that is a sequence in which each element is a couple of connected bases).
 
 ### Core functions
 
 #### Complementarity of Sequences
 ```julia
+function bitwise_binary_check(f::Function, segment1::Segment, segment2::Segment)::Bool
+    if segment1.length != segment2.length
+        return false
+    end
+    word_capience = div(word_size, segment1.granularity)
+    head_size = rem(segment1.length, word_capience)
+    word_count = length(segment1.words)
+    for i in 1:word_count-1
+        if f(segment1.words[i], segment2.words[i]) != 0
+            return false
+        end
+    end
+    if f(segment1.words[word_count], segment2.words[word_count]) << (word_size - head_size) != 0
+        return false
+    end
+    return true
+end
+
 are_complementary(s1, s2) = bitwise_binary_check((a,b)->~(a ⊻ b), s1, invert(s2))
 
 ```
+To check if two sequences are complementary we start by swapping the orientation of one of them using invert, then we use a specific instance of the `bitwise_binary_check` to parallelize the bitwise operation described by the lambda `(a,b)->~(a ⊻ b)` (that is simply an XNOR) on the entire content of the binary sequence. Due to the choice of "cifration" it can be checked that this operation returns 0 if and only if the two strings are complementary.
+NOTE: To check complementarity one has to insert both sequences in the same orientation, for example 5' -> 3'
 #### Inner Thermodynamic Contribution
 ```julia 
 function inner_thermodynamic_contribution(sequence::Sequence, data::DataFrame)::Vector{Float64}
@@ -128,7 +153,8 @@ function inner_thermodynamic_contribution(sequence::Sequence, data::DataFrame)::
     end
     return [ΔH, ΔS]
 end
-```
+``` 
+This function uses the cifration to access the thermodynamic data provided in the `data/` directory (for htis particular applliaction the `Watson-Crick-NN-Parameters.csv` file). The idea here is that each couple defines uniquely a number beteen 0 and 15. For example, if one takes AG to be a couple of nearest neighbors, this couple would appear as 0100 in the corresponding segment, this is 4 in binary. By listing enthalpy and ertropy values in a coherent fashion the elements can be used directly to access the dataframe at the correct location. It is important to note that there is a redundance as there is no difference looking at one strand or the other. In particular, still running 5' -> 3', opposite to the previous couple there will be CT, that corresponds to 1110 (that is 14) so these tho rows will be identical. To be able to support mismatches the data structures should be modified, in particular I believe the better option would be to create a struct containing a sequence whose elements are copuples of opposing bases. by doing so a similar approach could be used, this time using a table with 256 rows.
 #### Terminal AT Penalty
 ```julia
 function terminal_AT_penalty(sequence::Sequence)::Vector{Float64}
@@ -141,7 +167,7 @@ function terminal_AT_penalty(sequence::Sequence)::Vector{Float64}
     return [0.0, 0.0]
 end
 ```
-
+This function simply checks if the last element of the sequence is an 'A', and applies the thermodinamic modifications accordingly
 #### Symmetry Correction
 ```julia
 function symmetry_correction(sequence::Sequence)::Vector{Float64}
@@ -152,6 +178,7 @@ function symmetry_correction(sequence::Sequence)::Vector{Float64}
 end
 
 ```
+This function checks if the sequence is self complementary and applies the thermodynamic modifications accordingly
 #### Sequence Thermodynamics
 ```julia
 function sequence_potentials(sequence::Sequence, data_inner::DataFrame)::Vector{Float64}
@@ -162,21 +189,19 @@ function sequence_potentials(sequence::Sequence, data_inner::DataFrame)::Vector{
     return Δ
 end
 ```
-
-#### Melting temperature 
+Lastly this function composes all the contribution of the various terms giving the final thermodynamic potentials for the double strand (and as we will see for some of the single strand).
+#### Melting temperature and Melting Curve 
 ```julia
 function melting_temperature(H, S, C)
     return H/(S+R*log(C/4))
 end
-```
 
-#### Melting curve
-```julia
 function melting_curve(β, H, S)::Float64
     x = exp((β*H - S)/R)
     return 1 + x - sqrt(x^2 + 2x)
 end
 ```
+These two functions compute the melting temperature and melting curve, in the latter the form is different to that proposed to avoid precision errors due to the exponential function both at the numerator and denominator in the original version.
 
 #### Pin Extraction
 ```julia
@@ -185,10 +210,12 @@ function extract_pins!(strand::SingleStrand, pins::Vector{Pin})
     if integral[end] != 0
         error("Invalid structure")
     end
+#1
     ones_idxs = findall(x -> x == 1, integral)
     loop_length = count(x -> x == UInt(1), [unpack(strand.structure.binary, UInt(i)) for i in ones_idxs])
     first_element = unpack(strand.sequence.binary, 1)
     second_element = unpack(strand.sequence.binary, strand.length)
+#2
     if ~(first_element ⊻ second_element) & masks[1] == 0
         outer_pair = first_element | second_element << 2
     else
@@ -197,23 +224,27 @@ function extract_pins!(strand::SingleStrand, pins::Vector{Pin})
     has_marginal = false
     children_number = 0
     i = 1
+#3
     while i <= length(ones_idxs)
         structure = unpack(strand.structure.binary, ones_idxs[i])
         if structure == 2
+#4
             if unpack(strand.structure.binary, ones_idxs[i]-1) == 2 || unpack(strand.structure.binary, ones_idxs[i+1]) == 0
                 has_marginal = true
             end
+#5
             extract_pins!(substrand(strand, collect(ones_idxs[i]:ones_idxs[i+1]-1)), pins)
             children_number += 1
         end
         i += 1
     end
     only_child = children_number == 1
-
+#6
     if loop_length == 0 && only_child 
         extend!(pins[end], outer_pair)
     elseif has_marginal && only_child
         push!(pins, Ring(loop_length, outer_pair, 'B'))
+#7
     elseif children_number == 0 
         push!(pins, Ring(loop_length, outer_pair, 'H'))
     else
@@ -221,6 +252,21 @@ function extract_pins!(strand::SingleStrand, pins::Vector{Pin})
     end
 end
 ```
+This is the main decomposition function, it starts by taking the secondary structure as a segment, the cifration of the dotparen string is done as follows:
+- ')' -> 00 = 1 + (-1)
+- '.' -> 01 = 1 + (0)
+- '(' -> 10 = 1 + (+1)
+
+By subtracting 1 to each value one can think of the dotparen notation as a sort of derivative of a function, in particular one can antiderive to obtain a landscape that describes at what level each element is in the structure. In particular, paired bases, and elements of the same loop should be at the same level. 
+
+At this point the function proceeds as follows (numbers are presented as comment in the code for readability): 
+1. Looks at where the ones are (this will correspond to the level immediately deeper).
+2. Stitches the pair corresponding to the outermost parentheses and checks that the pair is complementary. 
+3. Runs through the position of the ones and assess what is on their right (a '.' or a '(') and how many of each there are.
+4. If it is a '(' it checks if it (or the next) is the first (or the last) one, if so it enables a boolean flag `has_marginal`
+5. If it is a '(' it calles itself on the higher level recursively.
+6. Decides what kind of pin it is and assigns the correspondin identifier as a `type`.
+7. If there are no points, insead of creating another Pin, the last one is extended.
 
 #### Loop Thermodynamic Contribution
 ```julia
@@ -263,6 +309,7 @@ function loop_thermodynamic_contribution(pin::Pin, hairpin_data::DataFrame, inte
     end
 end
 ```
-
+Finally this function extracts the correct values for the enthalpy and entropy associated to the loop type and lenght from the corresponding databases or calculates them for longer loop lenght.
 ## Additional notes
+
 
