@@ -1,14 +1,15 @@
 # HPModel
 
 ## Brief Theoretical Introduction and Architecture of the code
-The Hydrophobic-Polar (HP) model is a toy model used to understand how the polar characteristics of a protein may affect its folding and conformation. In particular it is interesting in showing how the compactness of a protein is associated to a small number of ground state configurations 
+Proteins have an immense number of degrees of freedom, so many, in fact that it would be impossible for them to explore a significant portion of their phase space in a reasonable time. The folding of a protein must then be understood as a stochastic process whose equation may be dependent on many biological factors. One particular class of proteins that are particularly stablein their ground state is that of globular proteins, proteins whose conformation is well localized and very compact. These proteins have the interesting property that different regions of the chain are forced in the center or on the outskirts of the protein according to them being Hydrophobic or Polar respectively. It turns out that this kind of behavior is responsible for the great reduction in the number of configurations accessed by the protein. 
+The Hydrophobic-Polar (HP) model is a toy model used to understand how the polar characteristics of a protein affect its folding and conformation, it abstracts the complex structure of the protein and cosiders only their affinity to water to gather information on the statistics of their configurations.
 
 ### Implemented extensions
-The pakage supports:
+The code supports:
+- Computation of the compactness
 - Any dimension
 - Any first neighbor interaction model that is compatible with the implemented data structures. In particular it supports the interaction model proposed by lee et al.
 - Computation of random sequences for lengthy structures
-(The compactness is calculated in the plot from `Chan-Dill-1989`)
 
 ### The Mathematics of Self Avoiding Walks
 The study of topological configuration of self avoiding walks (or paths) on any n-dimensional grid is a well established area of mathematical research, for this reason, most of the nomenclature will be inspired to the corresponding mathematical concepts. In particular I will refer to Self Avoding Paths (SAP) instead of Secondary Structures, in the biological setting, these can be taken as synonims.
@@ -18,10 +19,11 @@ The tree of self avoiding pahts is nothing but the subtree where all self collid
 
 <img width="1000" height="999" alt=" SAPs_Diagram" src="https://github.com/user-attachments/assets/5621d3bb-476a-446a-884b-23af71de9958" />
 
-The natural approach for the computation of all the possible topological configurations is to computate of all possible SAPs and then check if they are in the same orbit of another element that we have already counted. However (while not in use) i've implemented another approach that looks at the roots of those subgraphs that contan SAPs that do not contain equivalent elements. I've named these roots Seeds, they are represented in light blue in the graph that I've drawn. The interesting property of these seeds is that, no matter what is attached to them, the composite SAP will always be asymmetric. In a sense they are minimal generators of complete asymmetry. What this means computationally is that it is sufficient to calculate them uniquely (removing all their copies) and then attach all possible SAPs that complete the length of the seed to that required for the calculation, we've called these completions sprouts. It is easy to show that the smallest seed for any dimension must have the dimension as its length. What this implies is that the biggest sprout one needs to calculate is the final length minus the dimensionality of the system. This may seem small but due too the exponential nature of the problem may have a big impact on the depth of the computation, mostly for the higher dimensional case. An objection that needs to be addressed is the following: The computation of these seeds may be computationally expensive, what tells us that this approach might be efficient? Here, while I do not have a definite answer, i would like to note that the seeds grow in number as the number of (D-1) SAPs of length lower than that of the problem in consideration. in particular for dimension 2 they grow linearly with length as for each length in 1 dimension there is a unique topological SAP. Again due to the exponential nature of the computation this contribution will always be vanishing with respect to the computation of the sprouts.
+where in red I've denoted rotations and in light blue I've denoted reflections. 
+The natural approach for the computation of all the possible topological configurations (which is what is currently in use in the tests) is to compute all possible SAPs and then check if they are in the same orbit of another element that we have already counted. However (while not in use) I've implemented another approach that looks at the roots of those subgraphs that contan SAPs that do not contain equivalent elements. I've named these roots Seeds, they are represented in light blue in the graph that I've drawn. The interesting property of these seeds is that, no matter what is attached to them, the composite SAP will always be asymmetric. In a sense they are minimal generators of complete asymmetry. What this means computationally is that it is sufficient to calculate them uniquely (removing all their copies) and then attach all possible SAPs that complete the length of the seed to that required for the calculation, we've called these completions sprouts. It is easy to show that the smallest seed for any dimension must have the dimension as its length. What this implies is that the biggest sprout one needs to calculate is the final length minus the dimensionality of the system. This may seem small but due too the exponential nature of the problem may have a big impact on the depth of the computation, mostly for the higher dimensional case. An objection that needs to be addressed is the following: The computation of these seeds may be computationally expensive, what tells us that this approach might be efficient? Here, while I do not have a definite answer, i would like to note that the seeds grow in number as the number of (D-1)-dimensional SAPs of length lower than that of the problem in consideration. in particular for dimension 2 they grow linearly with length as for each length in 1 dimension there is a unique topological SAP. Again, due to the exponential nature of the computation, this contribution will always be vanishing with respect to the computation of the sprouts.
+
 ## Documentation
-Here we leave some technical details of the functions and structures used in our code, it is advisable, to better understand the content of this document you are advised to read the pdf provided in the `docs/` directory. 
-DISCLAIMER: The following functions may not be completely up to date, however the descriptions should be equivalent for most instances.
+Here I leave some technical details of the functions and structures used in the code.
 
 ### Core structures
 #### Path
@@ -261,7 +263,7 @@ end
 This function returns the multiplicity frequency of the fundamental state with respect to a set of sequences and one of paths.
 
 ### Additional implementations
-Here I leave some other implementations that were not practically used in the tests but have been discussed in the theoretical document. In particular both an occupation matrix approach to the extension of self avoiding paths, and, more interestingly, an unoptimized Seed-Sprout approach for the seach of all topological self avoiding paths are presented. More work is needed to assess the efficacy of both methods.
+Here I leave some other implementations that were not practically used in the tests but have been discussed earlier. In particular both an occupation matrix approach to the extension of self avoiding paths, and, more interestingly, an unoptimized Seed-Sprout approach for the seach of all topological self avoiding paths are presented. More work is needed to assess the efficacy of both methods.
 
 #### State
 ```julia
@@ -374,7 +376,10 @@ function suture(seed::Path, sprout::Path, dim::Int)
     return path_combine(seed, translated_sprout)
 end
 ```
-This is a crude implementation of the seed and sprout searches and of the suture method that is used to connect the two, avoiding self intersection. The peroformance is really promising, however more work would be needed to have a reliable and fast algorithm, so for the moment this is not used in the test scripts. This said it should still work properly, so, if one wants to test it, the funciton `unique_SAPs` contains an implementation of this method that should easily substitute `topological_SAPs`.
+This is a crude implementation of the seed and sprout searches and of the suture method that is used to connect the two, avoiding self intersection. I will not explain in much detail each element of the different funcitons as thery are not in use and the interesting details are already provided in the theoretical explanation. The peroformance is really promising, however more work would be needed to have a reliable and fast algorithm, so for the moment this is not used in the test scripts. This said it should still work properly, so, if one wants to test it, the funciton `unique_SAPs` contains an implementation of this method that should easily substitute `topological_SAPs`.
+
+### Possible extensions through Parallelism
+While this problem is not perfect for parallelization I believe it should still be possible to assign each extention to a separate thread, using GPUs it should be possible to increase massively the speed of the computation, however the memory limitations would still remain very much an issue, so batching and storage would surely be necessary to make further progress. 
 
 ### Additional Notes
 Considering the scope, efficiency was prioretized over safety, many functions may throw unhandled errors.
