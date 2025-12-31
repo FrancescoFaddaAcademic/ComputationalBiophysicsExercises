@@ -116,15 +116,153 @@ are_complementary(s1, s2) = bitwise_binary_check((a,b)->~(a ⊻ b), s1, invert(s
 
 ```
 #### Inner Thermodynamic Contribution
-
+```julia 
+function inner_thermodynamic_contribution(sequence::Sequence, data::DataFrame)::Vector{Float64}
+    segment = sequence.binary
+    ΔH = 0.0
+    ΔS = 0.0
+    for i in 1:segment.length-1
+        term_key = unpack(segment, i) | (unpack(segment, i+1) << segment.granularity)
+        ΔH += data[term_key+1,"DeltaH"]
+        ΔS += data[term_key+1,"DeltaS"]
+    end
+    return [ΔH, ΔS]
+end
+```
 #### Terminal AT Penalty
+```julia
+function terminal_AT_penalty(sequence::Sequence)::Vector{Float64}
+    segment = sequence.binary
+    len = segment.length
+    term_key = unpack(segment, len)
+    if term_key == 0
+        return [2.2e3, 6.9]
+    end
+    return [0.0, 0.0]
+end
+```
 
 #### Symmetry Correction
+```julia
+function symmetry_correction(sequence::Sequence)::Vector{Float64}
+    if are_complementary(sequence, sequence)
+        return [0.0, -1.4]
+    end
+    return [0.0, 0.0]
+end
 
+```
 #### Sequence Thermodynamics
+```julia
+function sequence_potentials(sequence::Sequence, data_inner::DataFrame)::Vector{Float64}
+    Δ = [0.2e3, -5.7]
+    Δ += inner_thermodynamic_contribution(sequence, data_inner)
+    Δ += terminal_AT_penalty(sequence)
+    Δ += symmetry_correction(sequence)
+    return Δ
+end
+```
 
 #### Melting temperature 
+```julia
+function melting_temperature(H, S, C)
+    return H/(S+R*log(C/4))
+end
+```
 
 #### Melting curve
+```julia
+function melting_curve(β, H, S)::Float64
+    x = exp((β*H - S)/R)
+    return 1 + x - sqrt(x^2 + 2x)
+end
+```
+
+#### Pin Extraction
+```julia
+function extract_pins!(strand::SingleStrand, pins::Vector{Pin})
+    integral = integrate(strand.structure)
+    if integral[end] != 0
+        error("Invalid structure")
+    end
+    ones_idxs = findall(x -> x == 1, integral)
+    loop_length = count(x -> x == UInt(1), [unpack(strand.structure.binary, UInt(i)) for i in ones_idxs])
+    first_element = unpack(strand.sequence.binary, 1)
+    second_element = unpack(strand.sequence.binary, strand.length)
+    if ~(first_element ⊻ second_element) & masks[1] == 0
+        outer_pair = first_element | second_element << 2
+    else
+        error("Structure and sequence are not compatible")
+    end
+    has_marginal = false
+    children_number = 0
+    i = 1
+    while i <= length(ones_idxs)
+        structure = unpack(strand.structure.binary, ones_idxs[i])
+        if structure == 2
+            if unpack(strand.structure.binary, ones_idxs[i]-1) == 2 || unpack(strand.structure.binary, ones_idxs[i+1]) == 0
+                has_marginal = true
+            end
+            extract_pins!(substrand(strand, collect(ones_idxs[i]:ones_idxs[i+1]-1)), pins)
+            children_number += 1
+        end
+        i += 1
+    end
+    only_child = children_number == 1
+
+    if loop_length == 0 && only_child 
+        extend!(pins[end], outer_pair)
+    elseif has_marginal && only_child
+        push!(pins, Ring(loop_length, outer_pair, 'B'))
+    elseif children_number == 0 
+        push!(pins, Ring(loop_length, outer_pair, 'H'))
+    else
+        push!(pins, Ring(loop_length, outer_pair, 'I'))
+    end
+end
+```
+
+#### Loop Thermodynamic Contribution
+```julia
+function loop_thermodynamic_contribution(pin::Pin, hairpin_data::DataFrame, internal_loop_data::DataFrame, bulge_data::DataFrame)::Vector{Float64}
+    if pin.type == 'H'
+        is_long = pin.loop_length > 9
+        data = hairpin_data
+        if pin.loop_length < 3
+            error("Hairpin of length < 3 are not supported")
+        elseif is_long
+            return [data[9,"Enthalpy"], data[9,"Entropy"]+1.75*R*log(pin.loop_length/9)]
+        else
+            return [data[pin.loop_length,"Enthalpy"], data[pin.loop_length,"Entropy"]]
+        end
+    elseif pin.type == 'I'
+        is_long = pin.loop_length > 6
+        data = internal_loop_data
+        if pin.loop_length < 4
+            error("Internal loop of length < 4 are not supported")
+        elseif is_long
+            return [data[6,"Enthalpy"], data[9,"Entropy"]+1.08*R*log(pin.loop_length/6)]
+        else
+            return [data[pin.loop_length,"Enthalpy"], data[pin.loop_length,"Entropy"]]
+        end
+    elseif pin.type == 'B'
+        is_long = pin.loop_length > 9
+        data = bulge_data
+        if is_long
+            return [data[6,"Enthalpy"], data[9,"Entropy"]+1.75*R*log(pin.loop_length/6)]
+        else
+            return [data[pin.loop_length,"Enthalpy"], data[pin.loop_length,"Entropy"]]
+        end
+    else
+        error("Unrecognized loop structure")
+    end
+    if is_long
+        return [data[9,"Enthalpy"], data[9,"Entropy"]+1.75*R*log(pin.loop_length/9)]
+    else
+        return [data[pin.loop_length,"Enthalpy"], data[pin.loop_length,"Entropy"]]
+    end
+end
+```
 
 ## Additional notes
+
