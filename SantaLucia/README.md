@@ -1,10 +1,11 @@
 # SantaLucia
 ## Brief theoretical introduction and architecture of the code
-The SantaLucia model is the most widely used Nearest Neighbor model for dna, it is used to calculate the thermodynamic potentials associated with the formation of the secondary structure of nucleic acids. The main idea consists in the assumption that the most relevant interaction is present at the level of adjacent pairs, each giving an intependent contribution to the thermodynamic potentials of the whole system. By this assumption of separability one manages to achieve low computational cost while still preserving most of the relevant thermodynamic information. In general a complete NN model can be quite complex, taking into account many of the possible structure motifs that may arise from interaction. The main two kinds of contributions that such an NN model can account for, are the following
+The SantaLucia model is the most widely used Nearest Neighbor model for DNA, it is used to calculate the thermodynamic potentials associated with the formation of the secondary structure of nucleic acids. The main idea consists in the assumption that the most relevant interaction is present at the level of adjacent pairs, each giving an independent contribution to the thermodynamic potentials of the whole system. By this assumption of separability one manages to achieve low computational cost while still preserving most of the relevant thermodynamic information. In general a complete NN model can be quite complex, taking into account many of the possible structure motifs that may arise from interaction. The main two kinds of contribution that such an NN model can account for, are the following
 - The adjacent nucleotide-pair interaction (in a section that is paired), together with some corrections
 - The contribution of unpaired sections giving rise to more complex geometries (such as Bulges, Hairpins, Internal-Loops etc.)  
 
-In the present assignment I've decided to model only a subclass of these motifs, in particular every paired section is assumed to be complete (the code will throw an error if you try to match two non complementary strands), and while Bulges Hairpins and Interal-Loops are supported, for the latter two there is a minimum size needed for the code to work, in particular a hairpin should be at least three bases long while the internal loop at least 4. I've avoided these particular cases to keep the code and (mostly) data realitively simple, as, due to the close configuration there is no easy rule for these cases, and a lot of unique data is needed for a correct modeling. Most of the data I've used was taken form [NNDB/Turner04](https://rna.urmc.rochester.edu/NNDB/turner04/index.html)
+In the present assignment I've decided to model only a subclass of these motifs, in particular every paired section is assumed to be complete (the code will throw an error if one tries to match two non complementary strands), and while Bulges Hairpins and Interal-Loops are supported, for the latter two there is a minimum size needed for the code to work, in particular a hairpin should be at least three bases long, while the internal loop at least 4. I've avoided these particular cases to keep the code and (mostly) data realitively simple, as, due to the close configuration, there is no easy rule for these cases, and a lot of unique data is needed for a correct modeling. Most of the data I've used was taken form [NNDB/Turner04](https://rna.urmc.rochester.edu/NNDB/turner04/index.html)
+
 ### Implemented extensions 
 The code supports:
 - Variable Strand Concentration
@@ -16,10 +17,13 @@ RNA secondary structure can be quite complex, to understand it, and to correctly
 
 <img width="1000" height="575" alt="Notewise-Senza titolo 2025-12-31-20251231175248" src="https://github.com/user-attachments/assets/14314ca6-2c49-4444-af4c-d3ae38075197" />
 
-The top two levels of the image show these two points of view and how they are decomposed level by level. The third level is nothing but a pictorial representation of the previous, however it makes the idea of the landscape clearer together with better representing what we mean by separating the lower level (the two yellow number represent the insertion point). The fourth row is a very simplified representation of the secondary structure in space, where the I've color coded the different section to understand what it means to connect different levels together. Finally the last row is a more abstract version of the previous, I've named each unit a "pin" as it resembles one (and hairpin was already occupied). 
-The advantage of this last idea is that, in the context of the NN model the contribution of each pin is independent to that of all the others. Moreover, as there is no need to keep track of the attachment points (as long as they are associeated with the same kind of structure) as they do not influence the thermodynamics, so the whole information is stored in the paired sequence of each Pin together with the size and type of the associated loops. As you will see shortly in the code documentation how this information is mirrored by the corresponding struct. Finally I would like to note that pins with stem-length bigger than 1 would be decomposed until they are trivial compositions of pins of length one and loop size 0, this is a particular instance of a structure that I've named "ring" (rings are nothing but pins with stem-length = 1). In the program there are mechanisms in place to avoid the fragmentation of pins into trivial rings, that would imply the loss of the NN interaction as adjacent pairs would get calculated separately.  
+The top two levels of the image show these two points of view and how they are decomposed level by level. The third level is nothing but a pictorial representation of the previous, however it makes the idea of the landscape clearer, together with better representing what we mean by separating the lower level (the two yellow number represent the insertion point). The fourth row is a very simplified representation of the secondary structure in space, where the I've color coded the different section to understand what it means to connect different levels together. Finally the last row is a more abstract version of the previous, I've named the units a "pins" as their representation resembles the their shape (and hairpin was already occupied). 
+The advantage of this last idea is that, in the context of the NN model the contribution of each pin is independent. Moreover, there is no need to keep track of the attachment points (as long as they are associeated with the same kind of structure) as they do not influence the thermodynamics, so the whole information is stored in the paired sequence of each Pin together with the size and type of the associated loops. In the code documentation it will be apparent how this information is mirrored by the corresponding struct. Finally I would like to note that pins with stem-length bigger than 1 would be decomposed until they are trivial compositions of pins of length one and loop size 0. This is a particular instance of a structure that I've named "ring" (rings are nothing but pins with stem-length = 1), in the program there is a mechanism in place to avoid the fragmentation of pins into trivial rings, that would imply the loss of the NN interaction as adjacent pairs would get scattered in different independent pins.  
 
 ## Documentation
+NOTE: Every letter in a sequence should be uppercase ('A' 'G' 'C' 'T')
+
+NOTE: Even if in in RNA strands the Thiamine is substituted by Uracil, for compatibility and efficiency reasons, I've decided to use the symbol T for both case, so, even for the single strand the notation is equivalent to that of DNA and Uracil must be denoted with 'T'. 
 
 ### Some preliminary notes on the Bitwise Manipulation
 To keep memory and computations efficient I've decided to use a bitwise data control, in hindsight this contributes to a worse legibility of the code, however I think that the efficiency advantages together with the improved elegance are worth the slightly more complex syntax. 
@@ -32,7 +36,7 @@ mutable struct Segment
     granularity::UInt
 end
 ```
-This is the main structure that I've used all over the code to store information both for the primary and secondary structures. A `Segment` is a sequence of `Words`, a word is nothing but a raw piece of memory with a specified size, in most modern computer such size is 64 bits. A segment serves as a very customizable memory structure, it will contain `elements` of some length specified by the `granularity`, this granularity must be smaller than the size of a single word (at least by a factor of two to make the structure even remotely useful). For example in the case of sequences of nucleic acids each element is one of four letter and hence the granularity of this kind of data will be 2 (2^2 = 4). For secondary structure there are only 3 symbols ('(', '.', ')'), however one must chose 2 as the granularity also in this case as it is the smallest power of two that enables the storage of each symbol. This means that for sequences of length <= 32 a single word for the primary structure and a single word for the secondary structure. Lastly the lenght is just the amount of elements contained in the segmets.
+This is the main structure that I've used all over the code to store information both for the primary and secondary structures. A `Segment` is a sequence of `Words`, a word is nothing but a raw piece of memory with a specified size, in most modern computers such size is 64 bits. A segment serves as a very customizable memory structure, it will contain `elements` of some length specified by the `granularity`, this granularity must be smaller than the size of a single word (at least by a factor of two to make the structure even remotely useful). For example in the case of sequences of nucleic acids each element is one of four letter and hence the granularity of this kind of data will be 2 (2^2 = 4). For secondary structure there are only 3 symbols ('(', '.', ')'), however one must chose 2 as the granularity also in this case as it is the smallest power of two that enables the storage of each symbol. This means that for sequences of length <= 32 a single word for the primary structure and a single word for the secondary structure. Lastly the lenght is just the amount of elements contained in the segmets.
 
 The reason this approach is so appropriate for this usecase is that most operations are done equally on all element of a structure, this means that through bitwise manipulation one is able to "parallelise" the computation and reduce the memory allocated up to a factor of 32! While this is irrelevant for the size of the sequences processed in this assignment, however for longer sequences it car represent a good computational advantage. 
 
@@ -58,7 +62,7 @@ function unpack(word::UInt, position::Integer, keysize::Integer)::UInt
     return (word & masks[position]) >> (keysize*(position-1))
 end
 ```
-These functions are used respectively to put and read elements (`key`) into words. There are analogous functions for segments that use the previous `segment_index` function to select the correct word and position before using these to do the actual data manipulation. In `pack` the key is bitshifted to the desired position, then substituted to the original bits (a mask is nothing but a word with zeros everywhere but in the desired position). Similarly in `unpack` one first selects the bit with the appropriate mask and then bitshifts them to the beginning to extract the key.
+These functions are used respectively to put and read elements (`key`) into words.  In `pack` the key is bitshifted to the desired position, then substituted to the original bits (a mask is nothing but a word with zeros everywhere but in the desired position). Similarly in `unpack` one first selects the bit with the appropriate mask and then bitshifts them to the beginning to extract the key. There are analogous functions for segments that use the previous `segment_index` function to select the correct word and position before using these to do the actual data manipulation.
 
 ### Cipher and Decipher
 ```julia
@@ -87,16 +91,6 @@ By doing this one can check if two bases are complementary by simply performing 
 In the code there are other 
 
 ### Core structures
-#### Comptime constants
-```julia 
-const word_size = Sys.WORD_SIZE
-const bases_symbols = SVector{4,Char}(['A', 'G', 'C', 'T'])
-const dotparen_symbols = SVector{3, Char}([')','.','('])
-const keys = SVector{4,UInt}([0, 1, 2, 3])
-const masks = SVector{32,UInt}([2^(2*i)+2^(2*i + 1) for i in 0:(word_size/2)-1])
-const R = 1.987
-```
-These are some useful constants that are used all over the code, mostly to do the bit manipulation.
 
 #### Sequence
 ```julia
@@ -105,6 +99,7 @@ mutable struct Sequence
 end
 ```
 At the moment a sequence coincides with its binary sequence, I've decided to create this encapsulation to be able to add some additional information if needed. 
+
 NOTE: Due to the lack of a support for mismatches every "perfect" double sequence will be treated just as a single sequence as including the second sequence would have been redundant. 
 
 #### Single Strand
@@ -125,7 +120,7 @@ mutable struct Pin
     type::Char
 end
 ```
-In this instance, where the interaction is dependent only on the size and on the type of loop, a Pin is well described by the length and type of its loop, and by the paired sequence (that is a sequence in which each element is a couple of connected bases).
+In this instance, where the interaction is dependent only on the size and on the type of loop, a `Pin` is well described by the length and type of its loop, and by the paired sequence (that is a sequence in which each element is a couple of connected bases).
 
 ### Core functions
 
@@ -153,7 +148,9 @@ are_complementary(s1, s2) = bitwise_binary_check((a,b)->~(a ⊻ b), s1, invert(s
 
 ```
 To check if two sequences are complementary we start by swapping the orientation of one of them using invert, then we use a specific instance of the `bitwise_binary_check` to parallelize the bitwise operation described by the lambda `(a,b)->~(a ⊻ b)` (that is simply an XNOR) on the entire content of the binary sequence. Due to the choice of "cifration" it can be checked that this operation returns 0 if and only if the two strings are complementary.
-NOTE: To check complementarity one has to insert both sequences in the same orientation, for example 5' -> 3'
+
+NOTE: Sequences are always read 5' -> 3', consider this when checking complementarity. 
+
 #### Inner Thermodynamic Contribution
 ```julia 
 function inner_thermodynamic_contribution(sequence::Sequence, data::DataFrame)::Vector{Float64}
@@ -168,7 +165,7 @@ function inner_thermodynamic_contribution(sequence::Sequence, data::DataFrame)::
     return [ΔH, ΔS]
 end
 ``` 
-This function uses the cifration to access the thermodynamic data provided in the `data/` directory (for htis particular applliaction the `Watson-Crick-NN-Parameters.csv` file). The idea here is that each couple defines uniquely a number beteen 0 and 15. For example, if one takes AG to be a couple of nearest neighbors, this couple would appear as 0100 in the corresponding segment, this is 4 in binary. By listing enthalpy and ertropy values in a coherent fashion the elements can be used directly to access the dataframe at the correct location. It is important to note that there is a redundance as there is no difference looking at one strand or the other. In particular, still running 5' -> 3', opposite to the previous couple there will be CT, that corresponds to 1110 (that is 14) so these tho rows will be identical. To be able to support mismatches the data structures should be modified, in particular I believe the better option would be to create a struct containing a sequence whose elements are copuples of opposing bases. by doing so a similar approach could be used, this time using a table with 256 rows.
+This function uses the cifration to access the thermodynamic data provided in the `data/` directory (for htis particular applliaction the `Watson-Crick-NN-Parameters.csv` file). The idea here is that each couple defines uniquely a number beteen 0 and 15. For example, if one takes AG to be a couple of nearest neighbors, this couple would appear as 0100 in the corresponding segment, this is 4 in binary. By listing enthalpy and ertropy values in a coherent fashion the elements can be used directly to access the dataframe at the correct location. It is important to note that there is a redundance, as there is no difference looking at one strand or the other. In particular, still running 5' -> 3', opposite to the previous couple there will be CT, that corresponds to 1110 (that is 14) so these tho rows will be identical. To be able to support mismatches the data structures should be modified, in particular I believe the better option would be to create a struct containing a sequence whose elements are copuples of opposing bases. by doing so a similar approach could be used, this time using a table with 256 rows.
 #### Terminal AT Penalty
 ```julia
 function terminal_AT_penalty(sequence::Sequence)::Vector{Float64}
@@ -215,7 +212,7 @@ function melting_curve(β, H, S)::Float64
     return 1 + x - sqrt(x^2 + 2x)
 end
 ```
-These two functions compute the melting temperature and melting curve, in the latter the form is different to that proposed to avoid precision errors due to the exponential function both at the numerator and denominator in the original version.
+These two functions compute the melting temperature and melting curve, in the latter the form is different to that proposed, to avoid precision errors due to the exponential function both at the numerator and denominator in the original version.
 
 #### Pin Extraction
 ```julia
@@ -271,7 +268,7 @@ This is the main decomposition function, it starts by taking the secondary struc
 - '.' -> 01 = 1 + (0)
 - '(' -> 10 = 1 + (+1)
 
-By subtracting 1 to each value one can think of the dotparen notation as a sort of derivative of a function, in particular one can antiderive to obtain a landscape that describes at what level each element is in the structure. In particular, paired bases, and elements of the same loop should be at the same level. 
+By subtracting 1 to each value we can easily implement the integral point of view given by the landscape.
 
 At this point the function proceeds as follows (numbers are presented as comment in the code for readability): 
 1. Looks at where the ones are (this will correspond to the level immediately deeper).
@@ -323,8 +320,9 @@ function loop_thermodynamic_contribution(pin::Pin, hairpin_data::DataFrame, inte
     end
 end
 ```
-Finally this function extracts the correct values for the enthalpy and entropy associated to the loop type and lenght from the corresponding databases or calculates them for longer loop lenght.
-## Additional notes
+Finally this function extracts the correct values for the enthalpy and entropy associated to the loop type and lenght from the corresponding databases, or calculates them for longer loop lenght.
+
+
 
 
 
